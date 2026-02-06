@@ -1,0 +1,11 @@
+start_month: 2
+start_day: 15
+end_month: 5
+end_day: 15
+raw_data_dir: "./data/raw"
+processed_data_dir: "./data/processed"
+min_lat: 35.75
+min_lon: -97.75
+max_lat: 39.75
+max_lon: -95.25
+spatial_name: "flinthills"
