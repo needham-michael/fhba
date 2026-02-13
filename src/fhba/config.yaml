@@ -1,11 +1,37 @@
-start_month: 2
-start_day: 15
-end_month: 5
-end_day: 15
-raw_data_dir: "./data/raw"
-processed_data_dir: "./data/processed"
-min_lat: 35.75
-min_lon: -97.75
-max_lat: 39.75
-max_lon: -95.25
-spatial_name: "flinthills"
+
+spatial:
+  min_lat: 35.75
+  min_lon: -97.75
+  max_lat: 39.75
+  max_lon: -95.25
+  spatial_name: "flinthills"
+
+temporal:
+  start_month: 2
+  start_day: 15
+  end_month: 5
+  end_day: 15
+
+paths: # relative to /fhba/app/
+  raw_data_dir: "./appdata/raw"
+  processed_data_dir: "./appdata/processed"
+  truecolor_img_dir: "./appdata/truecolor_images"
+  county_shp: "./appdata/_static/FH_Counties_Updated.shp/FH_Counties_Updated"
+
+viirs:
+  full_band_list: ["I01","I02","M03","M04","M05"]
+  nir_red_band_list: ["I01","I02"]
+  Suomi-NPP:
+    short_name_list: ["VNP02IMG", "VNP03IMG", "VNP02MOD", "VNP03MOD"]
+  NOAA-20:
+    short_name_list: ["VJ102IMG", "VJ103IMG", "VJ102MOD", "VJ103MOD"]
+  NOAA-21:
+      short_name_list: ["VJ202IMG", "VJ203IMG", "VJ202MOD", "VJ203MOD"]
+
+
+modis:
+  full_band_list: ["I01","I02","M03","M04","M05"]
+  AQUA:
+    short_name_list: ["VNP02IMG", "VNP03IMG", "VNP02MOD", "VNP03MOD"]
+  TERRA: 
+    short_name_list: ["VNP02IMG", "VNP03IMG", "VNP02MOD", "VNP03MOD"]

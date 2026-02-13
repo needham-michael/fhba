@@ -5,27 +5,47 @@ import inspect
 import json
 import os
 import tempfile
+from unicodedata import category
+import warnings
 import yaml
 
 import earthaccess
+import holoviews as hv
+import numpy as np
 import pandas as pd
+import xarray as xr
+
+from satpy.scene import Scene
+from satpy.enhancements import overlays
+
+from fhba.image import nonlinear_enhancement
 
 class GranuleManager:
     """Maintain status of granule downloads, file QC, and processing."""
-    def __init__(self,satellite_name=None,short_name_list=None,start_date=None,end_date=None,raw_data_dir=None,processed_data_dir=None,
-                 min_lat=None,min_lon=None,max_lat=None,max_lon=None,spatial_name=None):
+    def __init__(self,satellite_name=None,instrument=None,short_name_list=None,start_date=None,end_date=None,raw_data_dir=None,processed_data_dir=None,truecolor_img_dir=None,
+                 min_lat=None,min_lon=None,max_lat=None,max_lon=None,spatial_name=None,satpy_area_def=None,county_shp=None,raw_granules_by_date=None,processed_granules_by_date=None,truecolor_images_by_date=None,full_band_list=None,nir_red_band_list=None,):
         
         self.satellite_name = satellite_name
+        self.instrument = instrument.lower() if instrument is not None else None
         self.short_name_list = short_name_list if short_name_list is not None else []
         self.start_date = start_date
         self.end_date = end_date
         self.raw_data_dir = raw_data_dir
         self.processed_data_dir = processed_data_dir
+        self.truecolor_img_dir = truecolor_img_dir
         self.min_lat = min_lat
         self.min_lon = min_lon
         self.max_lat = max_lat
         self.max_lon = max_lon
         self.spatial_name = spatial_name
+        self.spatial = (self.min_lon, self.min_lat, self.max_lon, self.max_lat)
+        self.satpy_area_def = satpy_area_def
+        self.county_shp = county_shp
+        self.full_band_list = full_band_list if full_band_list is not None else []
+        self.nir_red_band_list = nir_red_band_list if nir_red_band_list is not None else []
+
+        if self.instrument not in ['viirs','modis',None]:
+            raise ValueError(f"Instrument {instrument} not recognized. Valid options are 'viirs' or 'modis'.")
 
         # Define dictionaries to maintain status of satellite granules by date at 
         # various workflow stages.
@@ -34,10 +54,106 @@ class GranuleManager:
             self.download_status = {d:False for d in date_range}
             self.qc_status = {d:-1 for d in date_range}
             self.processing_status = {d:False for d in date_range}
+            self.user_categorization_by_date = {d:"Uncategorized" for d in date_range}
+            self.analysis_status = {d:"Unanalyzed" for d in date_range}
 
-        self.raw_granules_by_date = {}
-        self.processed_granules_by_date = {}
+        if raw_granules_by_date is None:
+            self.raw_granules_by_date = {}
 
+        if processed_granules_by_date is None:
+            self.processed_granules_by_date = {}
+
+        if truecolor_images_by_date is None:
+            self.truecolor_images_by_date = {}
+
+    def preprocess_granules(self,date):
+        """Preprocess raw satellite granules for further analysis
+
+        Performs the following operations:
+        * Load specified bands from raw granules using Satpy
+        * Resample to the defined spatial area
+        * Generate and save a true color preview image
+        * Save loaded and reprojected bands to a new NetCDF file
+        """
+        if self.processing_status[date] == True:
+            print(f"Preprocessing already completed for this date. Skipping preprocessing step.")
+            return
+
+        if self.download_status[date] != True:
+            raise ValueError(f"Granules for date {date} have not been downloaded.")
+        
+        granule_files = self.raw_granules_by_date[date]
+
+        nc_file = os.path.join(
+            self.processed_data_dir, 
+            f"{self.satellite_name}_{self.spatial_name}_{date}.nc"
+            )
+        
+        png_name = f"{self.satellite_name.replace('-','')}_{self.instrument}_{self.spatial_name}_truecolor_{date}.png"
+        truecolor_file = os.path.join(self.truecolor_img_dir, png_name)
+
+        if granule_files == ["DOWNLOAD ERROR"]:
+            print(f"Download error for date {date}. Cannot preprocess granules.")
+            return
+        
+        nc_file_exists = os.path.exists(nc_file)
+        truecolor_file_exists = os.path.exists(truecolor_file)
+
+        # If both the NC file and the truecolor preview already exist, then skip
+        # loading the satpy scene. Otherwise need to load.
+        if nc_file_exists & truecolor_file_exists:
+            pass
+
+        else:
+
+            # Load bands from raw granules and reproject 
+            print(f"Loading and reprojecting granules to defined {self.spatial_name} region...")
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                band_list = self.full_band_list
+
+                if "true_color" not in band_list:
+                    band_list += ["true_color"]
+
+                print(f"Loading bands: {band_list}")
+                scene_full = Scene(filenames=granule_files, reader=f"{self.instrument}_l1b")
+                scene_full.load(band_list)
+                scene_regional = scene_full.resample(self.satpy_area_def,resampler='ewa')
+                scene_regional.load(band_list)
+        
+        if nc_file_exists:
+            print(f"Processed netcdf file already exists for {date}. Skipping save step.")
+            self.processed_granules_by_date[date] = nc_file
+            self.update_processing_status(date,True)
+            
+        
+        else:
+
+            # Save loaded and reprojected bands to new NetCDF file
+            os.makedirs(self.processed_data_dir,exist_ok=True)
+            
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore") # Ignore satpy warnings
+                scene_regional.save_datasets(
+                    filename=nc_file,writer='cf'
+                )
+
+            self.processed_granules_by_date[date] = nc_file
+            self.update_processing_status(date,True)
+
+        if truecolor_file_exists:
+            print(f"True color preview image already exists for {date}. Skipping generation step.")
+            self.truecolor_images_by_date[date] = truecolor_file
+        
+        else:
+
+            # Generate true color image with county overlay and save to disk
+            print(f"Generating true color image preview")
+            self.generate_truecolor_image(date,scene_regional,out_path=truecolor_file,overwrite=False)
+
+        return 
+
+        
 
     def update_download_status(self,date,status):
         """Update the download status for a given date."""
@@ -51,58 +167,250 @@ class GranuleManager:
         """Update the processing status for a given date."""
         self.processing_status[date] = status
 
-    def download_granules(self,date,day_night_flag='day',outdir=None,clobber=False):
-        """Download granules for the satellite within the specified temporal and spatial bounds."""
-        
-        earthaccess.login()
+    def update_analysis_status(self,date,status):
+        """Update the analysis status for a given date."""
+        if status not in ["Fully Cloudy", "Mostly Cloudy", "Mostly Clear", "Fully Clear", "Uncategorized", "Unfilled"]:
+            raise ValueError(f"Category {status} not recognized. Valid options are 'Fully Cloudy', 'Mostly Cloudy', 'Mostly Clear', 'Fully Clear', or 'Uncategorized'.")
+        self.analysis_status[date] = status
+
+    def update_user_categorization(self,date,category):
+        """Update the user categorization for a given date."""
+        if category not in ["Fully Cloudy", "Mostly Cloudy", "Mostly Clear", "Fully Clear", "Uncategorized", "Unfilled"]:
+            raise ValueError(f"Category {category} not recognized. Valid options are 'Fully Cloudy', 'Mostly Cloudy', 'Mostly Clear', 'Fully Clear', or 'Uncategorized'.")
+        self.user_categorization_by_date[date] = category
+
+    def search_granules(self,date,day_night_flag='day'):
+        """Search for granules for the satellite within the specified temporal and spatial bounds."""
 
         spatial = (self.min_lon, self.min_lat, self.max_lon, self.max_lat)
 
         if date not in self.download_status:
             raise ValueError(f"Date {date} is outside the defined date range for this GranuleManager of {self.start_date} to {self.end_date}.")
-
-        if date in self.raw_granules_by_date and not clobber:
-            print(f"Granules for date {date} already downloaded. Use clobber=True to re-download.")
-            return self.raw_granules_by_date[date]
         
-        granule_search_results = []
-        for short_name in self.short_name_list:
-            granule_search_results.extend(
-                earthaccess.search_data(
-                    short_name=short_name,
-                    bounding_box=spatial,
-                    temporal=(date,date),
-                    day_night_flag=day_night_flag
+        if self.download_status[date] == True:
+            print(f"Granules for date {date} have already been downloaded. Skipping search step.")
+            return None
+
+        print("Beginning Search for granules...")
+        granule_search_results = earthaccess.search_data(
+            short_name=self.short_name_list,
+            bounding_box=self.spatial,
+            temporal=(date,date),
+            day_night_flag=day_night_flag,
+            instrument=self.instrument.upper(),
+            platform=self.satellite_name.upper()   
+        )
+
+        print(f"Found {len(granule_search_results)} granules for {self.satellite_name} {self.instrument.upper()} on {date}.")
+
+        return granule_search_results
+
+    def download_granules(self,granule_search_results=None,date=None,day_night_flag='day',outdir=None,clobber=False,return_granules=False):
+        """Download granules for the satellite within the specified temporal and spatial bounds."""
+
+        if granule_search_results is None and date is None:
+            raise ValueError("Either granule_search_results or date must be provided to download granules.")
+        
+        if granule_search_results is None:
+
+            # Will return None if granules already downloaded to avoid redundant searches
+            granule_search_results = self.search_granules(date,day_night_flag=day_night_flag)
+
+        if granule_search_results is None:
+            print("Granules already downloaded. Skipping download step.")
+            return None
+
+
+        print(f"Downloading {len(granule_search_results)} granules for {self.satellite_name} {self.instrument.upper()}")
+
+        try: 
+            granule_files = earthaccess.download(
+                granule_search_results, 
+                local_path=self.raw_data_dir if outdir is None else outdir
                 )
-            )
+            
+            # Convert from Path objects to strings for JSON serialization
+            if date is not None:
+                self.raw_granules_by_date[date] = [str(f) for f in granule_files]
+                self.download_status[date] = True
+                print("Download complete. Filenames added to Registry")
+                if return_granules:
+                    return self.raw_granules_by_date[date]
+                
+            else:
+                print("Download complete. Filenames not added to Registry since date was not provided.")
+                if return_granules:
+                    return [str(f) for f in granule_files]
+        except earthaccess.exceptions.DownloadFailure:
+            print("Download failed. Marking date as download error in Registry.")
+            self.raw_granules_by_date[date] = ["DOWNLOAD ERROR"]
 
-        print(f"Found {len(granule_search_results)} granules for {self.satellite_name} on {date}.")
-
-        granule_files = earthaccess.download(
-            granule_search_results, 
-            local_path=self.raw_data_dir if outdir is None else outdir
-            )
         
-        # Convert from Path objects to strings for JSON serialization
-        self.raw_granules_by_date[date] = [str(f) for f in granule_files]
-        self.download_status[date] = True
+    def download_granules_date_range(self,day_night_flag='day',outdir=None,clobber=False):
+        pass
+
+    def generate_truecolor_image(self,date,scene_regional,out_path,overwrite=False):
+
+        granules = self.raw_granules_by_date[date]
+
+        if granules == ["DOWNLOAD ERROR"]:
+            print(f"Download error for date {date}. Cannot generate true color image.")
+            return
+        
+        if os.path.exists(out_path) and not overwrite:
+            print("True color image already exists. Skipping generation but adding file to Registry.")
+            self.truecolor_images_by_date[date] = out_path
+
+
+        else:
+            print(f"Generating true color image for {date}")
+            os.makedirs(self.truecolor_img_dir, exist_ok=True)  
+                    
+            print("Generating true color image with county overlay...")
+            img = scene_regional.show('true_color')
+
+            img = overlays.add_overlay(
+                img,
+                area=scene_regional['true_color'].area,
+                coast_dir=None,
+                overlays={
+                    'shapefiles': {
+                        'filename' : self.county_shp,
+                        "outline": (255, 255, 255, 255), 
+                        "fill": None,                   
+                        "width": 0.75,   
+                }}
+            )
+
+            img.save(out_path)
+            self.truecolor_images_by_date[date] = out_path
+
+        
+        return 
+    
+    def get_nir_red_hv_rgb(self,date,in_app=False):
+
+        if date is None:
+            return None
+
+        if date not in self.processed_granules_by_date:
+            msg = f"No preprocessed granules found for date {date}."
+            if in_app:
+                return msg
+            else:
+                raise ValueError(msg)
+        
+        ds = xr.open_dataset(self.processed_granules_by_date[date])
+
+        nir = ds[self.nir_red_band_list[0]].load()
+        red = ds[self.nir_red_band_list[1]].load()
+
+        lons = ds.longitude.isel(y=0)
+        lats = ds.latitude.isel(x=0)
+
+        r = nonlinear_enhancement(255 * nir.values / 100) / 255
+        g = nonlinear_enhancement(255 * red.values / 100) / 255
+        b = np.sqrt(r * g)
+
+        img = xr.concat(
+            [xr.DataArray(c,dims=red.dims,coords=red.coords)for c in [r,g,b]],
+            dim="band"
+            ).transpose(...,"band")
+        
+        rgb = hv.RGB((lons,lats,img.values)).opts(
+            width=500,
+            height=1000,
+            title=f"{self.satellite_name} {self.instrument.upper()} NIR-Red Composite for {date}")
+
+        return rgb
+            
+        
+    def process_granules(self):
+        pass
+    
+    def review_file_status(self):
+        raise NotImplementedError("Method review_file_status not yet implemented.")
 
     def to_dict(self):
         """Convert the granule manager to a dictionary representation."""
-        return {k:v for k,v in inspect.getmembers(self) if not k.startswith('_') and not inspect.ismethod(v)}
+    
+        dict_repr = {k:v for k,v in inspect.getmembers(self) if not k.startswith('_') and not inspect.ismethod(v)}
+        if 'satpy_area_def' in dict_repr.keys():
+            dict_repr['satpy_area_def'] = str(dict_repr['satpy_area_def'])
+
+        return dict_repr
     
     def from_dict(self, data):
         for k in data:
             setattr(self, k, data[k])
         return self
     
+    # def get_nir_red_img(self,date):
+    #     import holoviews as hv
+
+    #     if date not in self.raw_granules_by_date:
+    #         raise ValueError(f"No downloaded granules found for date {date}.")
+        
+    #     print("Begin loading granules for NIR-Red image generation...")
+        
+    #     with warnings.catch_warnings():
+    #         warnings.simplefilter("ignore")
+
+    #         # There is currently a bug in Satpy that prevents loading and resampling
+    #         # in a single step. As a workaround, create and load bands at full res
+    #         # and then resample to the desired area before loading again. 
+    #         scene_full = Scene(filenames=self.raw_granules_by_date[date], reader=f"{self.instrument}_l1b")
+    #         scene_full.load(self.nir_red_band_list)
+
+    #         print(f"Resampling to {self.spatial_name} area definition...")
+    #         scene_regional = scene_full.resample(self.satpy_area_def,resampler='ewa')
+    #         scene_regional.load(self.nir_red_band_list)
+
+    #     print("Loading reprojected granules...")
+    #     nir = scene_regional[self.nir_red_band_list[0]].load()
+    #     red = scene_regional[self.nir_red_band_list[1]].load()
+
+    #     lons, lats = scene_regional[self.nir_red_band_list[0]].attrs['area'].get_lonlats()
+
+    #     print("Generating image...")
+    #     r = nonlinear_enhancement(255 * nir.values / 100) / 255
+    #     g = nonlinear_enhancement(255 * red.values / 100) / 255
+    #     b = np.sqrt((r * g))
+
+    #     img = xr.concat(
+    #         [xr.DataArray(c,dims=red.dims,coords=red.coords)for c in [r,g,b]],
+    #         dim="band"
+    #         ).transpose(...,"band")
+        
+    #     img = img.assign_coords({'band':np.arange(len(img.band))})
+
+
+    #     rgb = hv.RGB((lons[0],lats[:,0],img.values)).opts(width=500,height=1000)
+
+    #     return rgb
+
+    
     def __str__(self):
-        class_str = f"GranuleManager for {self.satellite_name}\n > Product short names: {self.short_name_list}"
+        class_str = f"GranuleManager for {self.satellite_name} {self.instrument.upper()}\n > Product short names: {self.short_name_list}"
         return class_str
+    
+    def to_df(self):
+        print("Starting to_df")
+        df = pd.DataFrame({'download_status': self.download_status})
+        df['processing_status'] = self.processing_status
+        df['user_categorization'] = self.user_categorization_by_date
+        df['analysis_status'] = self.analysis_status
+        print("Ending to_df")
+        return df
+
 
 class GranuleRegistry:
     """"""
-    def __init__(self,data_year=None,start_month=None,start_day=None,end_month=None,end_day=None,raw_data_dir=None,processed_data_dir=None,min_lat=None,min_lon=None,max_lat=None,max_lon=None,spatial_name=None):
+    def __init__(self,data_year=None,start_month=None,start_day=None,end_month=None,end_day=None,
+                 raw_data_dir=None,processed_data_dir=None,truecolor_img_dir=None,min_lat=None,
+                 min_lon=None,max_lat=None,max_lon=None,spatial_name=None,viirs_short_names=None,
+                 viirs_band_list=None,viirs_nir_red_band_list=None,modis_short_names=None,modis_band_list=None,modis_nir_red_band_list=None,
+                 satpy_area_def=None,county_shp=None,supported_instruments=None):
 
         self.data_year = data_year
         self.start_month = start_month
@@ -111,38 +419,79 @@ class GranuleRegistry:
         self.end_day = end_day
         self.raw_data_dir = raw_data_dir
         self.processed_data_dir = processed_data_dir
+        self.truecolor_img_dir = truecolor_img_dir
+        self.county_shp = county_shp
         self.min_lat = min_lat
         self.min_lon = min_lon
         self.max_lat = max_lat
         self.max_lon = max_lon
         self.spatial_name = spatial_name
+        self.viirs_short_names = viirs_short_names
+        self.viirs_band_list = viirs_band_list
+        self.viirs_nir_red_band_list = viirs_nir_red_band_list
+        self.modis_short_names = modis_short_names
+        self.modis_band_list = modis_band_list
+        self.modis_nir_red_band_list = modis_nir_red_band_list
+        self.satpy_area_def = satpy_area_def
+        self.supported_instruments = supported_instruments if supported_instruments is not None else []
 
         self.satellites = {}
 
-    def add_satellite(self, satellite_name, short_name_list=None):
+    def add_satellite(self, satellite_name):
 
         """Add a satellite to the registry."""
         if satellite_name not in self.satellites:
+
+            if satellite_name not in self.supported_instruments:
+                raise ValueError(f"Satellite {satellite_name} not recognized. Valid options are {self.supported_instruments}.")
+            
+            
+            if satellite_name in self.viirs_short_names.keys():
+                instrument = 'viirs'
+                short_name_list = self.viirs_short_names[satellite_name]
+                full_band_list = self.viirs_band_list
+                nir_red_band_list = self.viirs_nir_red_band_list
+            else:
+                instrument = 'modis'
+                short_name_list = self.modis_short_names[satellite_name]
+                full_band_list = self.modis_band_list
+                nir_red_band_list = self.modis_nir_red_band_list
+
+
             self.satellites[satellite_name] = GranuleManager(
-                satellite_name, 
-                short_name_list,
+                satellite_name,
+                short_name_list=short_name_list,
+                instrument=instrument,
                 start_date=f"{self.data_year}-{self.start_month:02d}-{self.start_day:02d}",
                 end_date=f"{self.data_year}-{self.end_month:02d}-{self.end_day:02d}",
-                raw_data_dir=self.raw_data_dir + "/"+satellite_name,
-                processed_data_dir=self.processed_data_dir + "/"+satellite_name,
+                raw_data_dir=self.raw_data_dir +"/" + satellite_name,
+                processed_data_dir=self.processed_data_dir + "/" + satellite_name,
+                truecolor_img_dir=self.truecolor_img_dir + "/" + satellite_name,
+                full_band_list=full_band_list,
+                nir_red_band_list=nir_red_band_list,
                 min_lat=self.min_lat,
                 min_lon=self.min_lon,
                 max_lat=self.max_lat,
                 max_lon=self.max_lon,
-                spatial_name=self.spatial_name
+                spatial_name=self.spatial_name,
+                satpy_area_def=self.satpy_area_def,
+                county_shp=self.county_shp
                 )
+            
         else:
             print(f"Satellite {satellite_name} already exists in the registry.")
+
+    def review_file_status(self):
+        """"""
+        for satellite in self.satellites:
+            self.satellites[satellite].review_file_status()
 
     def to_dict(self):
         """Convert the granule registry to a dictionary representation."""
         dict_repr = {k:v for k,v in inspect.getmembers(self) if not k.startswith('_') and not inspect.ismethod(v) and not k=='satellites'}
         dict_repr['satellites'] = {sat: self.satellites[sat].to_dict() for sat in self.satellites}
+        if 'satpy_area_def' in dict_repr.keys():
+            dict_repr['satpy_area_def'] = str(dict_repr['satpy_area_def'])
         return dict_repr
     
     def from_dict(self, data):
@@ -158,19 +507,31 @@ class GranuleRegistry:
         return self.satellites.get(satellite_name, None)
         
     def __str__(self):
+        disp = lambda x: f"{x} {self.satellites[x].instrument.upper()}"
         class_str = f"GranuleRegistry for {self.data_year}"
         class_str += f"\n > Date Bounds: {self.start_month}/{self.start_day} to {self.end_month}/{self.end_day}"
-        class_str += f"\n > Satellites: {list(self.satellites.keys())}"
+        class_str += f"\n > Satellites: {list(map(disp, self.satellites.keys()))}"
         return class_str
     
         
 class Registry:
-    def __init__(self):
+    def __init__(self,get_satpy_area_def=True,auth_earthaccess=True):
 
         self.granule_registry = {}
 
         self.read_config()
-    
+
+        if get_satpy_area_def:
+            self.define_satpy_area_def()
+
+        if auth_earthaccess:
+            try:
+                earthaccess.login(persist=True)
+                print("Registry authenticated with Earthaccess...")
+            except Exception as e:
+                msg = "Error authenticating with Earthaccess."
+                raise ValueError(msg) from e
+
     def add_granule_registry(self, data_year):
         """Add a granule registry for a specific data year."""
         if data_year not in self.granule_registry:
@@ -180,13 +541,23 @@ class Registry:
                 start_day=self.start_day,
                 end_month=self.end_month,
                 end_day=self.end_day,
-                raw_data_dir=self.raw_data_dir+"/"+str(data_year),
-                processed_data_dir=self.processed_data_dir+"/"+str(data_year),
+                raw_data_dir=self.raw_data_dir + "/" + str(data_year),
+                processed_data_dir=self.processed_data_dir + "/" + str(data_year),
+                truecolor_img_dir=self.truecolor_img_dir + "/" + str(data_year),
+                county_shp = self.county_shp,
                 min_lat=self.min_lat,
                 min_lon=self.min_lon,
                 max_lat=self.max_lat,
                 max_lon=self.max_lon,
-                spatial_name=self.spatial_name
+                spatial_name=self.spatial_name,
+                viirs_band_list=self.viirs_full_band_list,
+                viirs_nir_red_band_list=self.viirs_nir_red_band_list,
+                viirs_short_names=self.viirs_short_names,
+                modis_band_list=self.modis_full_band_list,
+                modis_nir_red_band_list=self.modis_nir_red_band_list,
+                modis_short_names=self.modis_short_names,
+                satpy_area_def=self.satpy_area_def,
+                supported_instruments=self.supported_instruments
             ))   
 
         else:
@@ -201,25 +572,34 @@ class Registry:
         """Allow access to granule registries using indexing syntax."""
         data_year = str(data_year)
         self.granule_registry[data_year] = granule_registry
+
+    def define_satpy_area_def(self):
+        import warnings
+        from pyresample import create_area_def
+
+        warnings.warn("Using hardcoded parameters for registry.satpy_area_def")
+        satpy_area_def = create_area_def(
+            self.spatial_name,
+            {'proj': 'lcc', 'lon_0': -95, 'lat_0': 25, 'lat_1': 35},
+            width=500,
+            height=1000,
+            area_extent=self.spatial,
+            units='degrees'
+        )
+
+        self.satpy_area_def = satpy_area_def
+
     
     def read_config(self):
         """Reads the asset registry configuration from a file."""
-        config_file = importlib.resources.files('fhba') / 'config.yaml'
+
+        config_file   = importlib.resources.files('fhba') / 'config.yaml'
+        proj_home_dir = importlib.resources.files('fhba') / "app"
 
         try:
             with open(config_file) as f:
                 config = yaml.safe_load(f)
-                self.raw_data_dir = config.get('raw_data_dir', None)
-                self.processed_data_dir = config.get('processed_data_dir', None)
-                self.start_month = config.get('start_month', None)
-                self.start_day = config.get('start_day', None)
-                self.end_month = config.get('end_month', None)
-                self.end_day = config.get('end_day', None)
-                self.min_lat = config.get('min_lat', None)
-                self.min_lon = config.get('min_lon', None)
-                self.max_lat = config.get('max_lat', None)
-                self.max_lon = config.get('max_lon', None)
-                self.spatial_name = config.get('spatial_name', None)
+                config = {k:config[k] for k in config if not k.startswith('_')}
 
         except FileNotFoundError as e:
             msg = f"Configuration file {config_file} not found. Please ensure that 'config.yaml' is located at the root of the 'fhba' package and contains the necessary directory paths."
@@ -228,10 +608,50 @@ class Registry:
             msg = f"Error parsing the configuration file {config_file}. Please ensure that 'config.yaml' is properly formatted and contains valid YAML syntax."
             raise yaml.YAMLError(msg) from e
         
+        # Spatial Config
+        self.min_lat      = config['spatial'].get('min_lat', None)
+        self.min_lon      = config['spatial'].get('min_lon', None)
+        self.max_lat      = config['spatial'].get('max_lat', None)
+        self.max_lon      = config['spatial'].get('max_lon', None)
+        self.spatial_name = config['spatial'].get('spatial_name', None)
+        self.spatial = (self.min_lon, self.min_lat, self.max_lon, self.max_lat)
+
+        # Temporal Config
+        self.start_month = config['temporal'].get('start_month', None)
+        self.start_day   = config['temporal'].get('start_day', None)
+        self.end_month   = config['temporal'].get('end_month', None)
+        self.end_day     = config['temporal'].get('end_day', None)
+
+        # Filepath Config
+        self.raw_data_dir       = str(proj_home_dir / config['paths'].get('raw_data_dir', None))
+        self.processed_data_dir = str(proj_home_dir / config['paths'].get('processed_data_dir', None))
+        self.truecolor_img_dir  = str(proj_home_dir / config['paths'].get('truecolor_img_dir', None))
+        self.county_shp         = str(proj_home_dir / config['paths'].get('county_shp', None))
+
+        # Satellite-specific Config
+        self.viirs_short_names = {k:v['short_name_list'] for k,v in config['viirs'].items() if k != "full_band_list" and k != "nir_red_band_list" }
+        self.modis_short_names = {k:v['short_name_list'] for k,v in config['modis'].items() if k != "full_band_list" and k != "nir_red_band_list" }
+        
+        
+        self.viirs_full_band_list = config['viirs'].get('full_band_list', [])
+        self.modis_full_band_list = config['modis'].get('full_band_list', [])
+        self.viirs_nir_red_band_list = config['viirs'].get('nir_red_band_list', [])
+        self.modis_nir_red_band_list = config['modis'].get('nir_red_band_list', [])
+
+        self.supported_instruments = list(self.viirs_short_names.keys()) + list(self.modis_short_names.keys())
+
+    def review_file_status(self):
+        """Review the status of all files in the registry."""
+        for data_year in self.granule_registry:
+            self.granule_registry[data_year].review_file_status()
+
     def to_dict(self):
         """Convert the registry to a dictionary representation."""
         dict_repr = {k:v for k,v in inspect.getmembers(self) if not k.startswith('_') and not inspect.ismethod(v) and not k=='granule_registry'}
         dict_repr['granule_registry'] = {year: self.granule_registry[year].to_dict() for year in self.granule_registry}
+
+        if 'satpy_area_def' in dict_repr.keys():
+            dict_repr['satpy_area_def'] = str(dict_repr['satpy_area_def'])
         return dict_repr
     
     def from_dict(self, data):
@@ -240,6 +660,15 @@ class Registry:
                 setattr(self, k, data[k])
         
         self.granule_registry = {year: GranuleRegistry().from_dict(data['granule_registry'][year]) for year in data['granule_registry']}
+
+        if 'satpy_area_def' in data:
+            self.define_satpy_area_def()
+
+            for gr in self.granule_registry:
+                self.granule_registry[gr].satpy_area_def = self.satpy_area_def
+
+                for gm in self.granule_registry[gr].satellites:
+                    self.granule_registry[gr].satellites[gm].satpy_area_def = self.satpy_area_def
         return self
     
     def save_json(self,json_file=importlib.resources.files('fhba') / 'app' / 'state' / 'registry.json'):
@@ -255,6 +684,7 @@ class Registry:
 
     def load_json(self,json_file=importlib.resources.files('fhba') / 'app' / 'state' / 'registry.json'):
         """Load the registry from a JSON file."""
+        print(f"Loading registry from JSON file: {json_file}")
         try:
             with open(json_file, 'r', encoding='utf-8') as f:
                 data = json.load(f)
@@ -270,7 +700,9 @@ class Registry:
         class_str = f"Registry for managing satellite granules."
         if self.granule_registry:
             for data_year, granule_registry in self.granule_registry.items():
-                class_str += f"\n - {data_year}: satellites: {list(granule_registry.satellites.keys())}"
+                disp = lambda x: f"{x} {granule_registry.satellites[x].instrument.upper()}"
+                class_str += f"\n - {data_year}: satellites: {list(map(disp, granule_registry.satellites.keys()))}"
+                
         else:
             class_str += "\n - Add granule registries using add_granule_registry(data_year) method."
         return class_str
