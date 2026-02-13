@@ -23,7 +23,8 @@ from fhba.image import nonlinear_enhancement
 class GranuleManager:
     """Maintain status of granule downloads, file QC, and processing."""
     def __init__(self,satellite_name=None,instrument=None,short_name_list=None,start_date=None,end_date=None,raw_data_dir=None,processed_data_dir=None,truecolor_img_dir=None,
-                 min_lat=None,min_lon=None,max_lat=None,max_lon=None,spatial_name=None,satpy_area_def=None,county_shp=None,raw_granules_by_date=None,processed_granules_by_date=None,truecolor_images_by_date=None,full_band_list=None,nir_red_band_list=None,):
+                 min_lat=None,min_lon=None,max_lat=None,max_lon=None,spatial_name=None,satpy_area_def=None,county_shp=None,raw_granules_by_date=None,processed_granules_by_date=None,truecolor_images_by_date=None,full_band_list=None,nir_red_band_list=None,
+                 userpts_dir=None):
         
         self.satellite_name = satellite_name
         self.instrument = instrument.lower() if instrument is not None else None
@@ -33,6 +34,7 @@ class GranuleManager:
         self.raw_data_dir = raw_data_dir
         self.processed_data_dir = processed_data_dir
         self.truecolor_img_dir = truecolor_img_dir
+        self.userpts_dir = userpts_dir
         self.min_lat = min_lat
         self.min_lon = min_lon
         self.max_lat = max_lat
@@ -410,7 +412,7 @@ class GranuleRegistry:
                  raw_data_dir=None,processed_data_dir=None,truecolor_img_dir=None,min_lat=None,
                  min_lon=None,max_lat=None,max_lon=None,spatial_name=None,viirs_short_names=None,
                  viirs_band_list=None,viirs_nir_red_band_list=None,modis_short_names=None,modis_band_list=None,modis_nir_red_band_list=None,
-                 satpy_area_def=None,county_shp=None,supported_instruments=None):
+                 satpy_area_def=None,county_shp=None,supported_instruments=None,userpts_dir=None):
 
         self.data_year = data_year
         self.start_month = start_month
@@ -420,6 +422,7 @@ class GranuleRegistry:
         self.raw_data_dir = raw_data_dir
         self.processed_data_dir = processed_data_dir
         self.truecolor_img_dir = truecolor_img_dir
+        self.userpts_dir = userpts_dir
         self.county_shp = county_shp
         self.min_lat = min_lat
         self.min_lon = min_lon
@@ -467,6 +470,7 @@ class GranuleRegistry:
                 raw_data_dir=self.raw_data_dir +"/" + satellite_name,
                 processed_data_dir=self.processed_data_dir + "/" + satellite_name,
                 truecolor_img_dir=self.truecolor_img_dir + "/" + satellite_name,
+                userpts_dir=self.userpts_dir + "/" + satellite_name,
                 full_band_list=full_band_list,
                 nir_red_band_list=nir_red_band_list,
                 min_lat=self.min_lat,
@@ -544,6 +548,7 @@ class Registry:
                 raw_data_dir=self.raw_data_dir + "/" + str(data_year),
                 processed_data_dir=self.processed_data_dir + "/" + str(data_year),
                 truecolor_img_dir=self.truecolor_img_dir + "/" + str(data_year),
+                userpts_dir=self.userpts_dir + "/" + str(data_year),
                 county_shp = self.county_shp,
                 min_lat=self.min_lat,
                 min_lon=self.min_lon,
@@ -626,6 +631,7 @@ class Registry:
         self.raw_data_dir       = str(proj_home_dir / config['paths'].get('raw_data_dir', None))
         self.processed_data_dir = str(proj_home_dir / config['paths'].get('processed_data_dir', None))
         self.truecolor_img_dir  = str(proj_home_dir / config['paths'].get('truecolor_img_dir', None))
+        self.userpts_dir        = str(proj_home_dir / config['paths'].get('userpts_dir', None))
         self.county_shp         = str(proj_home_dir / config['paths'].get('county_shp', None))
 
         # Satellite-specific Config
