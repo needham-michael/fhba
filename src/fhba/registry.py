@@ -171,8 +171,6 @@ class GranuleManager:
 
     def update_analysis_status(self,date,status):
         """Update the analysis status for a given date."""
-        if status not in ["Fully Cloudy", "Mostly Cloudy", "Mostly Clear", "Fully Clear", "Uncategorized", "Unfilled"]:
-            raise ValueError(f"Category {status} not recognized. Valid options are 'Fully Cloudy', 'Mostly Cloudy', 'Mostly Clear', 'Fully Clear', or 'Uncategorized'.")
         self.analysis_status[date] = status
 
     def update_user_categorization(self,date,category):

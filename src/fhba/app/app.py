@@ -6,6 +6,7 @@ import holoviews as hv
 import geoviews as gv
 import geopandas as gpd
 import numpy as np
+import pandas as pd
 import panel as pn
 import param
 
@@ -164,24 +165,26 @@ class StageAnalyze(param.Parameterized):
     gm = param.Parameter()
 
     @param.depends('year','satellite','registry', 'gm')
-    def table_pane(self):
+    def table_pane(self,return_df=False):
 
         gm_df = self.gm.to_df().reset_index()
         gm_df = gm_df.rename(columns={'index':'date'})
         gm_df = gm_df[gm_df['download_status'] == True]
-
-        table = pn.widgets.Tabulator(
-            gm_df[['date','user_categorization','analysis_status']], show_index=False, width=400
+        
+        table = pn.pane.DataFrame(
+            gm_df[['date','user_categorization','analysis_status']], index=False, width=600
         )
 
-        return table, gm_df
-
+        if return_df:
+            return table, gm_df
+        
+        return table
 
     @param.depends('year','satellite','registry', 'gm')
     def view(self):
         instr = get_instructions("stage3.md")
 
-        table, gm_df = self.table_pane()
+        table, gm_df = self.table_pane(return_df=True)
 
         analysis_date_selector = pn.widgets.Select(
             name="",
@@ -201,11 +204,14 @@ class StageAnalyze(param.Parameterized):
             color='white', line_width=0.75
             )
 
-        hv_rgb = self.gm.get_nir_red_hv_rgb(date=analysis_date_selector.value)
-        hv_pane = pn.pane.HoloViews(hv_rgb * county_overly, width=500, height=1000)
+
+        # hv_rgb = self.gm.get_nir_red_hv_rgb(date=analysis_date_selector.value)
+        hv_pane = pn.pane.HoloViews(county_overly, width=500, height=1000)
 
         loading = pn.indicators.LoadingSpinner(name="Loading Image...", width=200, height=50,visible=False,value=False)
 
+        points_burned, points_burned_stream = initialize_userpoints(color='red')
+        points_unburned, points_unburned_stream = initialize_userpoints(color='white',marker='+')
 
         def update_hv_rgb(event):
             date = analysis_date_selector.value
@@ -214,16 +220,21 @@ class StageAnalyze(param.Parameterized):
             
             loading.value = True
             loading.visible = True
-            rgb = self.gm.get_nir_red_hv_rgb(date=date,in_app=True)
-            
+            loading.name='Loading Image...'
 
+            try:
+                rgb = self.gm.get_nir_red_hv_rgb(date=date,in_app=True)
+            except Exception as e:
+                pn.state.notifications.error(f"Error loading image for date {date}: {str(e)}",duration=6000)
+                loading.value = False
+                loading.name='Error Loading Image.'
+            
             if isinstance(rgb, str):
                 pn.state.notifications.error(rgb)
                 return
             
             if rgb is not None:
-                hv_pane.object = rgb * county_overly
-
+                hv_pane.object = rgb * county_overly * points_burned * points_unburned 
             loading.value = False
             loading.visible = False
         
@@ -232,7 +243,72 @@ class StageAnalyze(param.Parameterized):
         )
 
         load_img_button.on_click(update_hv_rgb)
+
+        export_button = pn.widgets.Button(
+            name='Export Points', button_type='primary')
+
+        export_options = pn.widgets.CheckBoxGroup(
+            name='Export Options', 
+            value=[], 
+            options=['Overwrite Points']
+        )
+
+        def export_button_callback(event):
+            selected_options = export_options.value
+            date = analysis_date_selector.value
+
+            points_csv_file = os.path.join(
+                self.gm.userpts_dir,f"./{self.gm.spatial_name}_userpts_{self.gm.satellite_name}_{date}.csv"
+            )
+
+            export_df = pts2df(
+                burned_pts = points_burned_stream.data,
+                unburned_pts = points_unburned_stream.data
+            )
+
+            if self.gm.userpts_dir is None:
+                self.gm.userpts_dir = "./tmp_userpts"
+
+
+            if export_df.empty:
+                pn.state.notifications.error('No Points Have Been Selected For This Granule.',duration=3000)
+
+                return
             
+            os.makedirs(self.gm.userpts_dir,exist_ok=True)
+
+            date = analysis_date_selector.value
+
+            points_csv_file = os.path.join(
+                self.gm.userpts_dir,f"./{self.gm.spatial_name}_userpts_{self.gm.satellite_name}_{date}.csv"
+            )
+            
+            proceed = True
+            if os.path.exists(points_csv_file):
+                proceed = False
+                if 'Overwrite Points' in selected_options:
+                    proceed = True
+
+            if proceed:
+                export_df.to_csv(points_csv_file,index=False)
+                pn.state.notifications.success('Points exported to file.',duration=3000)
+
+                n_burned = len(export_df[export_df['isBurned']==1])
+                n_unburned = len(export_df[export_df['isBurned']==0])
+                self.gm.update_analysis_status(date, f'{n_burned} burned points, {n_unburned} unburned points')
+                self.registry.save_json()
+
+            else:
+                pn.state.notifications.error('Points Have Already Been Exported For This Granule. Select Overwrite Points To Ignore.',duration=3000)
+
+                return
+            
+        def reload_table(event):
+            table.object = self.table_pane(return_df=False).object
+            
+        export_button.on_click(export_button_callback)
+        export_button.on_click(reload_table)
+
             
         return pn.Row(
             instr,
@@ -244,7 +320,7 @@ class StageAnalyze(param.Parameterized):
             ),
             pn.Column(
                 pn.pane.Markdown("## Identify Burned and Unburned Pixels"),
-                pn.Row(hv_pane,loading)),
+                pn.Column(loading,pn.Row(export_button,export_options),hv_pane)),
             margin=(40, 10), styles={'background': '#f0f0f0'})
 
     def panel(self):
@@ -257,6 +333,28 @@ def get_instructions(filename,instr_width=instr_width):
     ).readlines()
 
     return pn.pane.Markdown("".join(instructions),width=instr_width)
+
+def initialize_userpoints(color,marker='x'):
+
+    # Empty data to hold point locations
+    point_locations = ([], [],)
+    points = hv.Points(point_locations).opts(color=color,marker=marker,size=20,)
+    point_stream = hv.streams.PointDraw(data=points.columns(), source=points)
+
+    userpoints = points.opts(active_tools=['point_draw'])
+
+    return userpoints, point_stream
+
+def pts2df(burned_pts,unburned_pts):
+
+    burned_df = pd.DataFrame(burned_pts)
+    burned_df['isBurned'] = [1 for x in range(burned_df.shape[0])]
+    unburned_df = pd.DataFrame(unburned_pts)
+    unburned_df['isBurned'] = [0 for x in range(unburned_df.shape[0])]
+    
+    export_df = pd.concat([burned_df,unburned_df])
+
+    return export_df
 
 def build_app():
     
