@@ -6,6 +6,7 @@ DEV/
 
 # Local app data
 state/
+appdata/
 
 # Python-generated files
 __pycache__/
@@ -14,6 +15,7 @@ build/
 dist/
 wheels/
 *.egg-info
+.ipynb_checkpoints
 
 # Virtual environments
 .venv
