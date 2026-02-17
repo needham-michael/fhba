@@ -11,7 +11,7 @@ import panel as pn
 import param
 
 from fhba.registry import Registry
-from fhba.app.hv_rgb import get_nir_red_img, load_scene
+# from fhba.app.hv_rgb import get_nir_red_img, load_scene
 
 pn.extension('tabulator')
 pn.extension(notifications=True)
@@ -170,7 +170,7 @@ class StageAnalyze(param.Parameterized):
         gm_df = self.gm.to_df().reset_index()
         gm_df = gm_df.rename(columns={'index':'date'})
         gm_df = gm_df[gm_df['download_status'] == True]
-        
+
         table = pn.pane.DataFrame(
             gm_df[['date','user_categorization','analysis_status']], index=False, width=600
         )
@@ -200,18 +200,18 @@ class StageAnalyze(param.Parameterized):
         # FOR 2/12/2026 NEED TO IMPLEMENT: On button click, load the image for the selected analysis date and display it in a new pane below the table. This will likely involve using the load_scene and get_nir_red_img functions from hv_rgb.py to load the appropriate granule, preprocess it, and generate a preview image for analysis.   
         # THIS SHOULD UTILIZE THE load_scene and get_nir_red_img functions from hv_rgb.py to load the appropriate granule, preprocess it, and generate a preview image for analysis. The image pane should be displayed below the table and should update based on the selected analysis date when the button is clicked.
         
-        county_overly = hv.Path(gpd.read_file(self.gm.county_shp + ".shp").geometry).opts(
+        county_overlay = hv.Path(gpd.read_file(self.gm.county_shp + ".shp").geometry).opts(
             color='white', line_width=0.75
             )
 
 
         # hv_rgb = self.gm.get_nir_red_hv_rgb(date=analysis_date_selector.value)
-        hv_pane = pn.pane.HoloViews(county_overly, width=500, height=1000)
+        hv_pane = pn.pane.HoloViews(county_overlay, width=500, height=1000)
 
         loading = pn.indicators.LoadingSpinner(name="Loading Image...", width=200, height=50,visible=False,value=False)
 
-        points_burned, points_burned_stream = initialize_userpoints(color='red')
-        points_unburned, points_unburned_stream = initialize_userpoints(color='white',marker='+')
+        points_burned, points_burned_stream = initialize_userpoints(color='red',label='Burned')
+        points_unburned, points_unburned_stream = initialize_userpoints(color='blue',marker='+',label='Unburned')
 
         def update_hv_rgb(event):
             date = analysis_date_selector.value
@@ -234,7 +234,7 @@ class StageAnalyze(param.Parameterized):
                 return
             
             if rgb is not None:
-                hv_pane.object = rgb * county_overly * points_burned * points_unburned 
+                hv_pane.object = rgb * county_overlay * points_burned * points_unburned 
             loading.value = False
             loading.visible = False
         
@@ -325,6 +325,137 @@ class StageAnalyze(param.Parameterized):
 
     def panel(self):
         return pn.Row(self.view,)
+    
+class StageCategorize(param.Parameterized):
+
+    year = param.Integer()
+    satellite = param.String()
+    registry = param.Parameter()
+    gm = param.Parameter()
+
+    @param.depends('year','satellite','registry', 'gm')
+    def table_pane(self,return_df=False):
+
+        gm_df = self.gm.to_df().reset_index()
+        gm_df = gm_df.rename(columns={'index':'date'})
+        gm_df = gm_df[gm_df['analysis_status'] != "Unanalyzed"]
+
+        table = pn.pane.DataFrame(
+            gm_df[['date','analysis_status','categorization_status']], index=False, 
+            width=600
+        )
+
+        if return_df:
+            return table, gm_df
+        
+        return table
+
+    @param.depends('year','satellite','registry','gm')
+    def categorize_pixels(self,date):
+
+        pass
+
+    @param.depends('year','satellite','registry','gm')
+    def view(self):
+        instr = get_instructions("stage4.md")
+
+        table, gm_df = self.table_pane(return_df=True)
+
+        analysis_date_selector = pn.widgets.Select(
+            name="",
+            options=gm_df['date'].tolist(),
+            width=200,
+        )
+
+        load_img_button = pn.widgets.Button(
+            name="Load Analysis Date Image", button_type="primary", width=200
+        )
+
+        categorize_pixel_button = pn.widgets.Button(
+            name="Categorize Pixels", button_type="primary", width=200
+        )
+
+        county_overlay = hv.Path(gpd.read_file(self.gm.county_shp + ".shp").geometry).opts(
+            color='white', line_width=0.75
+            )
+
+        hv_pane = pn.pane.HoloViews(county_overlay, width=500, height=1000)
+
+
+        loading = pn.indicators.LoadingSpinner(name="Loading Image...", width=200, height=50,visible=False,value=False)
+
+
+        def update_hv_rgb(event):
+            date = analysis_date_selector.value
+
+            print(f"Updating HV RGB with {date = }")  # Debugging statement
+
+            points_csv_file = os.path.join(
+                self.gm.userpts_dir,f"./{self.gm.spatial_name}_userpts_{self.gm.satellite_name}_{date}.csv"
+            )
+
+            print(f"Loading user points from {points_csv_file}")  # Debugging statement
+
+            df_userpts = pd.read_csv(points_csv_file)
+
+            df_isburned = df_userpts[df_userpts['isBurned']==1]
+            df_unburned = df_userpts[df_userpts['isBurned']==0]
+
+            points_burned = initialize_userpoints(
+                point_locations=(df_isburned['x'].tolist(), df_isburned['y'].tolist()),
+                color='red',marker='x',label='Burned'
+                )
+            
+            points_unburned = initialize_userpoints(
+                point_locations=(df_unburned['x'].tolist(), df_unburned['y'].tolist()),
+                color='blue',marker='+',label='Unburned'
+                )
+
+            loading.value = True
+            loading.visible = True
+            loading.name='Loading Image...'
+
+            try:
+                rgb = self.gm.get_nir_red_hv_rgb(date=date,in_app=True)
+            except Exception as e:
+                pn.state.notifications.error(f"Error loading image for date {date}: {str(e)}",duration=6000)
+                loading.value = False
+                loading.name='Error Loading Image.'
+            
+            if isinstance(rgb, str):
+                pn.state.notifications.error(rgb)
+                return
+            
+            if rgb is not None:
+                hv_pane.object = rgb * county_overlay * points_burned * points_unburned
+            loading.value = False
+            loading.visible = False
+
+        load_img_button.on_click(
+            lambda event: pn.state.notifications.info(f"Loading image for analysis date: {analysis_date_selector.value}")
+        )
+
+        load_img_button.on_click(update_hv_rgb)
+
+
+        pane = pn.Row(
+            instr,
+            pn.Column(
+                pn.pane.Markdown("## Categorize Granules Based on User-Identified Points"),
+                pn.Row(analysis_date_selector, load_img_button,categorize_pixel_button),
+                pn.layout.Divider(),
+                table,margin=(40, 10), width=component_width,styles={'background': '#f0f0f0'}
+            ),
+            pn.Column(
+                pn.pane.Markdown("## Identify Burned and Unburned Pixels"),
+                pn.Column(loading,hv_pane)),
+                margin=(40, 10), styles={'background': '#f0f0f0'}
+            )
+        
+        return pane
+    
+    def panel(self):
+        return pn.Row(self.view,)
 
 def get_instructions(filename,instr_width=instr_width):
 
@@ -334,16 +465,23 @@ def get_instructions(filename,instr_width=instr_width):
 
     return pn.pane.Markdown("".join(instructions),width=instr_width)
 
-def initialize_userpoints(color,marker='x'):
+def initialize_userpoints(color,marker='x',point_locations=None,label=None):
 
-    # Empty data to hold point locations
-    point_locations = ([], [],)
-    points = hv.Points(point_locations).opts(color=color,marker=marker,size=20,)
-    point_stream = hv.streams.PointDraw(data=points.columns(), source=points)
+    if point_locations is None:
+        active_tools = ['point_draw']
+        point_locations = ([], [],)
 
-    userpoints = points.opts(active_tools=['point_draw'])
+        points = hv.Points(point_locations,label=label).opts(color=color,marker=marker,size=20,)
+        point_stream = hv.streams.PointDraw(data=points.columns(), source=points)
 
-    return userpoints, point_stream
+        userpoints = points.opts(active_tools=active_tools)
+
+        return userpoints, point_stream
+
+    else:
+        points = hv.Points(point_locations,label=label).opts(color=color,marker=marker,size=20,)
+
+        return points
 
 def pts2df(burned_pts,unburned_pts):
 
@@ -362,6 +500,7 @@ def build_app():
     pipeline.add_stage(name="Select Year and Instrument",stage=StageSetup)
     pipeline.add_stage(name="Preview and Categorize Images",stage=StagePreview)
     pipeline.add_stage(name="Analyze Pixels",stage=StageAnalyze)
+    pipeline.add_stage(name="Euclidean Categorization",stage=StageCategorize)
         
     return pipeline
 
