@@ -24,10 +24,13 @@ viirs:
   nir_red_band_list: ["I01","I02"]
   Suomi-NPP:
     short_name_list: ["VNP02IMG", "VNP03IMG", "VNP02MOD", "VNP03MOD"]
+    cloud_mask_short_name: "CLDMSK_L2_VIIRS_SNPP"
   NOAA-20:
     short_name_list: ["VJ102IMG", "VJ103IMG", "VJ102MOD", "VJ103MOD"]
+    cloud_mask_short_name: "CLDMSK_L2_VIIRS_NOAA20"
   NOAA-21:
       short_name_list: ["VJ202IMG", "VJ203IMG", "VJ202MOD", "VJ203MOD"]
+      cloud_mask_short_name: "CLDMSK_L2_VIIRS_NOAA21"
 
 
 modis:

@@ -8,6 +8,8 @@ authors = [
 ]
 requires-python = ">=3.13"
 dependencies = [
+    "bottleneck>=1.6.0",
+    "dask>=2026.1.2",
     "earthaccess>=0.16.0",
     "geopandas>=1.1.2",
     "geotiff>=0.2.10",
@@ -15,15 +17,21 @@ dependencies = [
     "h5netcdf>=1.8.1",
     "holoviews>=1.22.1",
     "netcdf4>=1.7.4",
+    "numcodecs<0.16", # pin numcodecs to <0.16 due to issue with satpy resmapling with kdtree
     "numpy>=2.4.2",
     "panel>=1.8.7",
+    "pyarrow>=23.0.1",
     "pycoast>=1.8.0",
     "pydecorate",
+    "pykdtree>=1.4.3",
+    "pyresample>=1.35.0",
     "pyspectral>=0.14.1",
     "rasterio>=1.5.0",
     "satpy>=0.59.0",
+    "scikit-learn>=1.8.0",
     "scipy>=1.17.0",
     "tqdm>=4.67.3",
+    "xarray>=2025.11.0",
     "zarr>=2.12.0",
 ]
 
@@ -33,7 +41,9 @@ build-backend = "hatchling.build"
 
 [dependency-groups]
 dev = [
+    "hvplot>=0.12.2",
     "ipywidgets>=8.1.8",
     "jupyterlab>=4.5.3",
+    "rioxarray>=0.21.0",
     "ruff>=0.15.0",
 ]

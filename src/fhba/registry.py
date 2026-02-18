@@ -24,11 +24,12 @@ class GranuleManager:
     """Maintain status of granule downloads, file QC, and processing."""
     def __init__(self,satellite_name=None,instrument=None,short_name_list=None,start_date=None,end_date=None,raw_data_dir=None,processed_data_dir=None,truecolor_img_dir=None,
                  min_lat=None,min_lon=None,max_lat=None,max_lon=None,spatial_name=None,satpy_area_def=None,county_shp=None,raw_granules_by_date=None,processed_granules_by_date=None,truecolor_images_by_date=None,full_band_list=None,nir_red_band_list=None,
-                 userpts_dir=None):
+                 userpts_dir=None, cloud_mask_short_name=None):
         
         self.satellite_name = satellite_name
         self.instrument = instrument.lower() if instrument is not None else None
         self.short_name_list = short_name_list if short_name_list is not None else []
+        self.cloud_mask_short_name = cloud_mask_short_name
         self.start_date = start_date
         self.end_date = end_date
         self.raw_data_dir = raw_data_dir
@@ -54,16 +55,20 @@ class GranuleManager:
         if self.start_date is not None and self.end_date is not None:
             date_range = pd.date_range(start=self.start_date,end=self.end_date,freq='D').strftime("%Y-%m-%d").tolist()
             self.download_status = {d:False for d in date_range}
+            self.cloud_mask_download_status = {d:False for d in date_range}
             self.qc_status = {d:-1 for d in date_range}
             self.processing_status = {d:False for d in date_range}
             self.user_categorization_by_date = {d:"Uncategorized" for d in date_range}
             self.analysis_status = {d:"Unanalyzed" for d in date_range}
+            self.categorization_status = {d:"Uncategorized" for d in date_range}
 
         if raw_granules_by_date is None:
             self.raw_granules_by_date = {}
+            self.raw_cloud_mask_granules_by_date = {}
 
         if processed_granules_by_date is None:
             self.processed_granules_by_date = {}
+            self.processed_cloud_masks_by_date = {}
 
         if truecolor_images_by_date is None:
             self.truecolor_images_by_date = {}
@@ -73,9 +78,11 @@ class GranuleManager:
 
         Performs the following operations:
         * Load specified bands from raw granules using Satpy
-        * Resample to the defined spatial area
+        * Load cloud mask granules using Satpy
+        * Resample reflectance and cloud masks to the defined spatial area
         * Generate and save a true color preview image
         * Save loaded and reprojected bands to a new NetCDF file
+            - Separate NetCDF file for cloud mask
         """
         if self.processing_status[date] == True:
             print(f"Preprocessing already completed for this date. Skipping preprocessing step.")
@@ -85,10 +92,16 @@ class GranuleManager:
             raise ValueError(f"Granules for date {date} have not been downloaded.")
         
         granule_files = self.raw_granules_by_date[date]
+        cloud_mask_files = self.raw_cloud_mask_granules_by_date[date]
 
         nc_file = os.path.join(
             self.processed_data_dir, 
             f"{self.satellite_name}_{self.spatial_name}_{date}.nc"
+            )
+        
+        cloud_mask_nc_file = os.path.join(
+            self.processed_data_dir, 
+            f"{self.satellite_name}_{self.spatial_name}_cloud_mask_{date}.nc"
             )
         
         png_name = f"{self.satellite_name.replace('-','')}_{self.instrument}_{self.spatial_name}_truecolor_{date}.png"
@@ -99,10 +112,12 @@ class GranuleManager:
             return
         
         nc_file_exists = os.path.exists(nc_file)
+        cloud_mask_nc_file_exists = os.path.exists(cloud_mask_nc_file)
         truecolor_file_exists = os.path.exists(truecolor_file)
 
         # If both the NC file and the truecolor preview already exist, then skip
-        # loading the satpy scene. Otherwise need to load.
+        # loading the satpy scene. Otherwise need to load. Note that loading the 
+        # cloud mask granule occurs later
         if nc_file_exists & truecolor_file_exists:
             pass
 
@@ -120,7 +135,7 @@ class GranuleManager:
                 print(f"Loading bands: {band_list}")
                 scene_full = Scene(filenames=granule_files, reader=f"{self.instrument}_l1b")
                 scene_full.load(band_list)
-                scene_regional = scene_full.resample(self.satpy_area_def,resampler='ewa')
+                scene_regional = scene_full.resample(self.satpy_area_def,resampler='nearest')
                 scene_regional.load(band_list)
         
         if nc_file_exists:
@@ -153,9 +168,31 @@ class GranuleManager:
             print(f"Generating true color image preview")
             self.generate_truecolor_image(date,scene_regional,out_path=truecolor_file,overwrite=False)
 
-        return 
+        if cloud_mask_nc_file_exists:
+            print(f"Processed cloud mask netcdf file already exists for {date}. Skipping save step.")
+            self.processed_cloud_masks_by_date[date] = cloud_mask_nc_file
 
-        
+        else:
+            
+            # Load bands from raw granules and reproject 
+            print(f"Loading and reprojecting cloud mask to defined {self.spatial_name} region...")
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+
+                print(f"Loading cloud mask granules for {date}")
+                cloud_mask_scene_full = Scene(filenames=cloud_mask_files, reader=f"{self.instrument}_l2")
+                cloud_mask_scene_full.load(['Clear_Sky_Confidence'])
+                cloud_mask_scene_regional = cloud_mask_scene_full.resample(self.satpy_area_def,resampler='nearest')
+                cloud_mask_scene_regional.load(['Clear_Sky_Confidence'])
+
+                cloud_mask_scene_regional.save_datasets(
+                    filename=cloud_mask_nc_file,writer='cf'
+                )
+
+            self.processed_cloud_masks_by_date[date] = cloud_mask_nc_file
+            self.update_processing_status(date,True)
+
+        return 
 
     def update_download_status(self,date,status):
         """Update the download status for a given date."""
@@ -173,6 +210,10 @@ class GranuleManager:
         """Update the analysis status for a given date."""
         self.analysis_status[date] = status
 
+    def update_categorization_status(self,date,status):
+        """Update the categorization status for a given date."""
+        self.categorization_status[date] = status
+
     def update_user_categorization(self,date,category):
         """Update the user categorization for a given date."""
         if category not in ["Fully Cloudy", "Mostly Cloudy", "Mostly Clear", "Fully Clear", "Uncategorized", "Unfilled"]:
@@ -181,8 +222,6 @@ class GranuleManager:
 
     def search_granules(self,date,day_night_flag='day'):
         """Search for granules for the satellite within the specified temporal and spatial bounds."""
-
-        spatial = (self.min_lon, self.min_lat, self.max_lon, self.max_lat)
 
         if date not in self.download_status:
             raise ValueError(f"Date {date} is outside the defined date range for this GranuleManager of {self.start_date} to {self.end_date}.")
@@ -204,6 +243,31 @@ class GranuleManager:
         print(f"Found {len(granule_search_results)} granules for {self.satellite_name} {self.instrument.upper()} on {date}.")
 
         return granule_search_results
+    
+    def search_cloud_mask_granules(self,date,day_night_flag='day'):
+        """Search for cloud mask granules for the satellite within the specified temporal and spatial bounds."""
+
+        if date not in self.download_status:
+            raise ValueError(f"Date {date} is outside the defined date range for this GranuleManager of {self.start_date} to {self.end_date}.")
+        
+        if self.cloud_mask_download_status[date] == True:
+            print(f"Granules for date {date} have already been downloaded. Skipping search step.")
+            return None
+        
+        print("Beginning Search for cloud mask granules...")
+        granule_search_results = earthaccess.search_data(
+            short_name=self.cloud_mask_short_name,
+            bounding_box=tuple(self.spatial),
+            temporal=(date,date),
+            day_night_flag=day_night_flag,
+            instrument=self.instrument.upper(),
+            platform=self.satellite_name.upper()   
+        )
+
+        print(f"Found {len(granule_search_results)} cloud mask granules for {self.satellite_name} {self.instrument.upper()} on {date}.")
+
+        return granule_search_results
+
 
     def download_granules(self,granule_search_results=None,date=None,day_night_flag='day',outdir=None,clobber=False,return_granules=False):
         """Download granules for the satellite within the specified temporal and spatial bounds."""
@@ -244,6 +308,43 @@ class GranuleManager:
         except earthaccess.exceptions.DownloadFailure:
             print("Download failed. Marking date as download error in Registry.")
             self.raw_granules_by_date[date] = ["DOWNLOAD ERROR"]
+
+    def download_cloud_mask_granules(self,cloud_mask_granule_search_results=None,date=None,day_night_flag='day',outdir=None,clobber=False,return_granules=False):
+
+        if cloud_mask_granule_search_results is None and date is None:
+            raise ValueError("Either granule_search_results or date must be provided to download granules.")
+        
+        if cloud_mask_granule_search_results is None:
+
+            # Will return None if granules already downloaded to avoid redundant searches
+            cloud_mask_granule_search_results = self.search_cloud_mask_granules(date,day_night_flag=day_night_flag)
+
+        if cloud_mask_granule_search_results is None:
+            print("Cloud mask granules already downloaded. Skipping download step.")
+            return None
+
+        print(f"Downloading {len(cloud_mask_granule_search_results)} cloud mask granules for {self.satellite_name} {self.instrument.upper()}")
+
+        try: 
+            granule_files = earthaccess.download(
+                cloud_mask_granule_search_results, 
+                local_path=self.raw_data_dir if outdir is None else outdir
+                )
+            
+            # Convert from Path objects to strings for JSON serialization
+            if date is not None:
+                self.raw_cloud_mask_granules_by_date[date] = [str(f) for f in granule_files]
+                print("Download complete. Cloud mask filenames added to Registry")
+                if return_granules:
+                    return self.raw_cloud_mask_granules_by_date[date]
+                
+            else:
+                print("Download complete. Filenames not added to Registry since date was not provided.")
+                if return_granules:
+                    return [str(f) for f in granule_files]
+        except earthaccess.exceptions.DownloadFailure:
+            print("Download failed. Marking date as download error in Registry.")
+            self.raw_cloud_mask_granules_by_date[date] = ["DOWNLOAD ERROR"]
 
         
     def download_granules_date_range(self,day_night_flag='day',outdir=None,clobber=False):
@@ -345,51 +446,6 @@ class GranuleManager:
             setattr(self, k, data[k])
         return self
     
-    # def get_nir_red_img(self,date):
-    #     import holoviews as hv
-
-    #     if date not in self.raw_granules_by_date:
-    #         raise ValueError(f"No downloaded granules found for date {date}.")
-        
-    #     print("Begin loading granules for NIR-Red image generation...")
-        
-    #     with warnings.catch_warnings():
-    #         warnings.simplefilter("ignore")
-
-    #         # There is currently a bug in Satpy that prevents loading and resampling
-    #         # in a single step. As a workaround, create and load bands at full res
-    #         # and then resample to the desired area before loading again. 
-    #         scene_full = Scene(filenames=self.raw_granules_by_date[date], reader=f"{self.instrument}_l1b")
-    #         scene_full.load(self.nir_red_band_list)
-
-    #         print(f"Resampling to {self.spatial_name} area definition...")
-    #         scene_regional = scene_full.resample(self.satpy_area_def,resampler='ewa')
-    #         scene_regional.load(self.nir_red_band_list)
-
-    #     print("Loading reprojected granules...")
-    #     nir = scene_regional[self.nir_red_band_list[0]].load()
-    #     red = scene_regional[self.nir_red_band_list[1]].load()
-
-    #     lons, lats = scene_regional[self.nir_red_band_list[0]].attrs['area'].get_lonlats()
-
-    #     print("Generating image...")
-    #     r = nonlinear_enhancement(255 * nir.values / 100) / 255
-    #     g = nonlinear_enhancement(255 * red.values / 100) / 255
-    #     b = np.sqrt((r * g))
-
-    #     img = xr.concat(
-    #         [xr.DataArray(c,dims=red.dims,coords=red.coords)for c in [r,g,b]],
-    #         dim="band"
-    #         ).transpose(...,"band")
-        
-    #     img = img.assign_coords({'band':np.arange(len(img.band))})
-
-
-    #     rgb = hv.RGB((lons[0],lats[:,0],img.values)).opts(width=500,height=1000)
-
-    #     return rgb
-
-    
     def __str__(self):
         class_str = f"GranuleManager for {self.satellite_name} {self.instrument.upper()}\n > Product short names: {self.short_name_list}"
         return class_str
@@ -400,6 +456,7 @@ class GranuleManager:
         df['processing_status'] = self.processing_status
         df['user_categorization'] = self.user_categorization_by_date
         df['analysis_status'] = self.analysis_status
+        df['categorization_status'] = self.categorization_status
         print("Ending to_df")
         return df
 
@@ -410,7 +467,7 @@ class GranuleRegistry:
                  raw_data_dir=None,processed_data_dir=None,truecolor_img_dir=None,min_lat=None,
                  min_lon=None,max_lat=None,max_lon=None,spatial_name=None,viirs_short_names=None,
                  viirs_band_list=None,viirs_nir_red_band_list=None,modis_short_names=None,modis_band_list=None,modis_nir_red_band_list=None,
-                 satpy_area_def=None,county_shp=None,supported_instruments=None,userpts_dir=None):
+                 satpy_area_def=None,county_shp=None,supported_instruments=None,userpts_dir=None,viirs_cloud_mask_short_names=None):
 
         self.data_year = data_year
         self.start_month = start_month
@@ -430,6 +487,7 @@ class GranuleRegistry:
         self.viirs_short_names = viirs_short_names
         self.viirs_band_list = viirs_band_list
         self.viirs_nir_red_band_list = viirs_nir_red_band_list
+        self.viirs_cloud_mask_short_names = viirs_cloud_mask_short_names
         self.modis_short_names = modis_short_names
         self.modis_band_list = modis_band_list
         self.modis_nir_red_band_list = modis_nir_red_band_list
@@ -452,6 +510,7 @@ class GranuleRegistry:
                 short_name_list = self.viirs_short_names[satellite_name]
                 full_band_list = self.viirs_band_list
                 nir_red_band_list = self.viirs_nir_red_band_list
+                cloud_mask_short_name = self.viirs_cloud_mask_short_names[satellite_name]
             else:
                 instrument = 'modis'
                 short_name_list = self.modis_short_names[satellite_name]
@@ -470,6 +529,7 @@ class GranuleRegistry:
                 truecolor_img_dir=self.truecolor_img_dir + "/" + satellite_name,
                 userpts_dir=self.userpts_dir + "/" + satellite_name,
                 full_band_list=full_band_list,
+                cloud_mask_short_name=cloud_mask_short_name,
                 nir_red_band_list=nir_red_band_list,
                 min_lat=self.min_lat,
                 min_lon=self.min_lon,
@@ -556,6 +616,7 @@ class Registry:
                 viirs_band_list=self.viirs_full_band_list,
                 viirs_nir_red_band_list=self.viirs_nir_red_band_list,
                 viirs_short_names=self.viirs_short_names,
+                viirs_cloud_mask_short_names=self.viirs_cloud_mask_short_names,
                 modis_band_list=self.modis_full_band_list,
                 modis_nir_red_band_list=self.modis_nir_red_band_list,
                 modis_short_names=self.modis_short_names,
@@ -635,6 +696,8 @@ class Registry:
         # Satellite-specific Config
         self.viirs_short_names = {k:v['short_name_list'] for k,v in config['viirs'].items() if k != "full_band_list" and k != "nir_red_band_list" }
         self.modis_short_names = {k:v['short_name_list'] for k,v in config['modis'].items() if k != "full_band_list" and k != "nir_red_band_list" }
+
+        self.viirs_cloud_mask_short_names = {k:v['cloud_mask_short_name'] for k,v in config['viirs'].items() if k != "full_band_list" and k != "nir_red_band_list" }
         
         
         self.viirs_full_band_list = config['viirs'].get('full_band_list', [])
