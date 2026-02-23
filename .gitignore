@@ -7,6 +7,9 @@ DEV/
 # Local app data
 state/
 appdata/
+*.tif*
+*.zip
+*.csv
 
 # Python-generated files
 __pycache__/
