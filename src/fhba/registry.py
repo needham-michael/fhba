@@ -22,9 +22,14 @@ from fhba.image import nonlinear_enhancement
 
 class GranuleManager:
     """Maintain status of granule downloads, file QC, and processing."""
-    def __init__(self,satellite_name=None,instrument=None,short_name_list=None,start_date=None,end_date=None,raw_data_dir=None,processed_data_dir=None,truecolor_img_dir=None,
-                 min_lat=None,min_lon=None,max_lat=None,max_lon=None,spatial_name=None,satpy_area_def=None,county_shp=None,raw_granules_by_date=None,processed_granules_by_date=None,truecolor_images_by_date=None,full_band_list=None,nir_red_band_list=None,
-                 userpts_dir=None, cloud_mask_short_name=None):
+    def __init__(self,satellite_name=None,instrument=None,short_name_list=None,
+                 start_date=None,end_date=None,raw_data_dir=None,processed_data_dir=None,
+                 truecolor_img_dir=None,min_lat=None,min_lon=None,max_lat=None,
+                 max_lon=None,spatial_name=None,satpy_area_def=None,county_shp=None,
+                 raw_granules_by_date=None,processed_granules_by_date=None,
+                 truecolor_images_by_date=None,full_band_list=None,nir_red_band_list=None,
+                 userpts_dir=None, cloud_mask_short_name=None,userpts_by_date=None,
+                 burnmasks_by_date=None):
         
         self.satellite_name = satellite_name
         self.instrument = instrument.lower() if instrument is not None else None
@@ -53,7 +58,10 @@ class GranuleManager:
         # Define dictionaries to maintain status of satellite granules by date at 
         # various workflow stages.
         if self.start_date is not None and self.end_date is not None:
-            date_range = pd.date_range(start=self.start_date,end=self.end_date,freq='D').strftime("%Y-%m-%d").tolist()
+            date_range = pd.date_range(
+                start=self.start_date,end=self.end_date,freq='D'
+                ).strftime("%Y-%m-%d").tolist()
+            
             self.download_status = {d:False for d in date_range}
             self.cloud_mask_download_status = {d:False for d in date_range}
             self.qc_status = {d:-1 for d in date_range}
@@ -72,6 +80,22 @@ class GranuleManager:
 
         if truecolor_images_by_date is None:
             self.truecolor_images_by_date = {}
+
+        if userpts_by_date is None:
+            self.userpts_by_date = {}
+
+        if burnmasks_by_date is None:
+            self.burnmasks_by_date = {}
+
+    def prepare_data(self,date):
+        """Prepare data for a given date by downloading and preprocessing granules."""
+
+        reflectance_granules = self.search_granules(date=date)
+        cloud_mask_granules = self.search_cloud_mask_granules(date=date)
+
+        self.download_granules(date=date,granule_search_results=reflectance_granules)
+        self.download_cloud_mask_granules(date=date,cloud_mask_granule_search_results=cloud_mask_granules)
+        self.preprocess_granules(date=date)
 
     def preprocess_granules(self,date):
         """Preprocess raw satellite granules for further analysis
@@ -135,7 +159,7 @@ class GranuleManager:
                 print(f"Loading bands: {band_list}")
                 scene_full = Scene(filenames=granule_files, reader=f"{self.instrument}_l1b")
                 scene_full.load(band_list)
-                scene_regional = scene_full.resample(self.satpy_area_def,resampler='nearest')
+                scene_regional = scene_full.resample(self.satpy_area_def,resampler='ewa')
                 scene_regional.load(band_list)
         
         if nc_file_exists:
@@ -268,7 +292,6 @@ class GranuleManager:
 
         return granule_search_results
 
-
     def download_granules(self,granule_search_results=None,date=None,day_night_flag='day',outdir=None,clobber=False,return_granules=False):
         """Download granules for the satellite within the specified temporal and spatial bounds."""
 
@@ -345,8 +368,7 @@ class GranuleManager:
         except earthaccess.exceptions.DownloadFailure:
             print("Download failed. Marking date as download error in Registry.")
             self.raw_cloud_mask_granules_by_date[date] = ["DOWNLOAD ERROR"]
-
-        
+ 
     def download_granules_date_range(self,day_night_flag='day',outdir=None,clobber=False):
         pass
 
@@ -424,10 +446,6 @@ class GranuleManager:
             title=f"{self.satellite_name} {self.instrument.upper()} NIR-Red Composite for {date}")
 
         return rgb
-            
-        
-    def process_granules(self):
-        pass
     
     def review_file_status(self):
         raise NotImplementedError("Method review_file_status not yet implemented.")
@@ -463,11 +481,14 @@ class GranuleManager:
 
 class GranuleRegistry:
     """"""
-    def __init__(self,data_year=None,start_month=None,start_day=None,end_month=None,end_day=None,
-                 raw_data_dir=None,processed_data_dir=None,truecolor_img_dir=None,min_lat=None,
-                 min_lon=None,max_lat=None,max_lon=None,spatial_name=None,viirs_short_names=None,
-                 viirs_band_list=None,viirs_nir_red_band_list=None,modis_short_names=None,modis_band_list=None,modis_nir_red_band_list=None,
-                 satpy_area_def=None,county_shp=None,supported_instruments=None,userpts_dir=None,viirs_cloud_mask_short_names=None):
+    def __init__(self,data_year=None,start_month=None,start_day=None,end_month=None,
+                 end_day=None,raw_data_dir=None,processed_data_dir=None,
+                 truecolor_img_dir=None,min_lat=None,min_lon=None,max_lat=None,
+                 max_lon=None,spatial_name=None,viirs_short_names=None,
+                 viirs_band_list=None,viirs_nir_red_band_list=None,modis_short_names=None,
+                 modis_band_list=None,modis_nir_red_band_list=None,satpy_area_def=None,
+                 county_shp=None,supported_instruments=None,userpts_dir=None,
+                 viirs_cloud_mask_short_names=None):
 
         self.data_year = data_year
         self.start_month = start_month
@@ -637,18 +658,26 @@ class Registry:
         data_year = str(data_year)
         self.granule_registry[data_year] = granule_registry
 
-    def define_satpy_area_def(self):
+    def define_satpy_area_def(self,width=500,height=1000):
         import warnings
         from pyresample import create_area_def
 
         warnings.warn("Using hardcoded parameters for registry.satpy_area_def")
+        warnings.warn("Projection set to Web Mercator (EPSG:3857) for registry.satpy_area_def.")
+
+        area_id = self.spatial_name
+        # projection = {'proj': 'lcc', 'lon_0': -95, 'lat_0': 25, 'lat_1': 35}
+        projection = 3857 # EPSG Code for Web Mercator
+        area_extent = self.spatial
+        units = 'degrees'
+        
         satpy_area_def = create_area_def(
-            self.spatial_name,
-            {'proj': 'lcc', 'lon_0': -95, 'lat_0': 25, 'lat_1': 35},
-            width=500,
-            height=1000,
-            area_extent=self.spatial,
-            units='degrees'
+            area_id=area_id,
+            projection=projection,
+            width=width,
+            height=height,
+            area_extent=area_extent,
+            units=units
         )
 
         self.satpy_area_def = satpy_area_def
