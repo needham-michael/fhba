@@ -11,7 +11,6 @@ import panel as pn
 import param
 
 from fhba.registry import Registry
-# from fhba.app.hv_rgb import get_nir_red_img, load_scene
 
 pn.extension('tabulator')
 pn.extension(notifications=True)
@@ -193,7 +192,11 @@ class StageAnalyze(param.Parameterized):
         )
 
         load_img_button = pn.widgets.Button(
-            name="Load Analysis Date Image", button_type="primary", width=200
+            name="Load Analysis Date Image", button_type="primary", width=150
+        )
+
+        load_pts_button = pn.widgets.Button(
+            name="Import Previous User Points", button_type="primary", width=150
         )
 
         # NOTE: The image loading and analysis functionality is not yet implemented. The button click will simply trigger a notification for now.
@@ -243,6 +246,52 @@ class StageAnalyze(param.Parameterized):
         )
 
         load_img_button.on_click(update_hv_rgb)
+
+        def update_user_points(event):
+
+            date = analysis_date_selector.value
+
+            print(f"Updating HV RGB with {date = }")  # Debugging statement
+
+            points_csv_file = os.path.join(
+                self.gm.userpts_dir,f"./{self.gm.spatial_name}_userpts_{self.gm.satellite_name}_{date}.csv"
+            )
+
+            print(f"Loading user points from {points_csv_file}")  # Debugging statement
+
+            df_userpts = pd.read_csv(points_csv_file)
+
+            df_isburned = df_userpts[df_userpts['isBurned']==1]
+            df_unburned = df_userpts[df_userpts['isBurned']==0]
+
+            points_burned.data = pd.DataFrame({'x':df_isburned['x'].tolist(),'y':df_isburned['y'].tolist()})
+            points_unburned.data = pd.DataFrame({'x':df_unburned['x'].tolist(),'y':df_unburned['y'].tolist()})
+
+            loading.value = True
+            loading.visible = True
+            loading.name='Loading Image...'
+
+            try:
+                rgb = self.gm.get_nir_red_hv_rgb(date=date,in_app=True)
+            except Exception as e:
+                pn.state.notifications.error(f"Error loading image for date {date}: {str(e)}",duration=6000)
+                loading.value = False
+                loading.name='Error Loading Image.'
+            
+            if isinstance(rgb, str):
+                pn.state.notifications.error(rgb)
+                return
+            
+            if rgb is not None:
+                hv_pane.object = rgb * county_overlay * points_burned * points_unburned 
+            loading.value = False
+            loading.visible = False
+
+        # load_pts_button.on_click(
+        #     lambda event: pn.state.notifications.info(f"Importing previous user points for analysis date: {analysis_date_selector.value}")
+        # )
+
+        load_pts_button.on_click(update_user_points)
 
         export_button = pn.widgets.Button(
             name='Export Points', button_type='primary')
@@ -296,6 +345,10 @@ class StageAnalyze(param.Parameterized):
                 n_burned = len(export_df[export_df['isBurned']==1])
                 n_unburned = len(export_df[export_df['isBurned']==0])
                 self.gm.update_analysis_status(date, f'{n_burned} burned points, {n_unburned} unburned points')
+
+                if getattr(self.gm, 'userpts_by_date', None) is None:
+                    self.gm.userpts_by_date = {}
+                self.gm.userpts_by_date[date] = points_csv_file
                 self.registry.save_json()
 
             else:
@@ -314,7 +367,7 @@ class StageAnalyze(param.Parameterized):
             instr,
             pn.Column(
                 pn.pane.Markdown("## Select Analysis Date from Table of Downloaded Granules"),
-                pn.Row(analysis_date_selector, load_img_button),
+                pn.Row(analysis_date_selector, load_img_button, load_pts_button),
                 pn.layout.Divider(),
                 table,
             ),
@@ -385,7 +438,7 @@ class StageCategorize(param.Parameterized):
         loading = pn.indicators.LoadingSpinner(name="Loading Image...", width=200, height=50,visible=False,value=False)
 
 
-        def update_hv_rgb(event):
+        def update_hv_rgb_with_points(event):
             date = analysis_date_selector.value
 
             print(f"Updating HV RGB with {date = }")  # Debugging statement
@@ -435,7 +488,7 @@ class StageCategorize(param.Parameterized):
             lambda event: pn.state.notifications.info(f"Loading image for analysis date: {analysis_date_selector.value}")
         )
 
-        load_img_button.on_click(update_hv_rgb)
+        load_img_button.on_click(update_hv_rgb_with_points)
 
 
         pane = pn.Row(
