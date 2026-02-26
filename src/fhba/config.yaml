@@ -20,6 +20,10 @@ paths: # relative to /fhba/app/
   burnmask_dir: "./appdata/burnmask"
   county_shp: "./appdata/_static/FH_Counties_Updated.shp/FH_Counties_Updated"
 
+nlcd:
+  nlcd_filedir: "fhba/app/appdata/nlcd"
+  nlcd_filename: "Annual_NLCD_LndCov_2024_CU_C1V1.tif"
+
 viirs:
   full_band_list: ["I01","I02","I03","M03","M04","M05","M07","M08","M11"]
   nir_red_band_list: ["I01","I02"]
