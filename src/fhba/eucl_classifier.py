@@ -49,28 +49,31 @@ def get_cloudmask(cldmask_nc,threshold=0.80):
     return cldmask
 
 def classify_pixels_eucl(
-        userpts_csv,processed_nc,landmask_nc,cldmask_nc=None,band_list=None,nbr_bands=None,area_def=None):
+        userpts_csv,processed_nc,landmask_nc,cldmask_nc=None,band_list=None,nbr_bands=None,area_def=None,lonlat_to_xy=False):
 
     with xr.open_dataset(landmask_nc).isel(band=0) as lcmask:
         with xr.open_dataset(processed_nc) as ds_processed:
 
             ds_processed = xr.open_dataset(processed_nc)
             df_userpts = pd.read_csv(userpts_csv)
-            df_userpts = df_userpts.rename(columns={'x':'longitude','y':'latitude'})
 
-            if area_def is None:
-                raise ValueError("area_def must be provided for coordinate transformation in classify_pixels_eucl.")
+            if lonlat_to_xy:
+                if area_def is None:
+                    raise ValueError("area_def must be provided for coordinate transformation in classify_pixels_eucl.")
 
-            x,y = area_def.get_projection_coordinates_from_lonlat(df_userpts['longitude'],df_userpts['latitude'])
+                x,y = area_def.get_projection_coordinates_from_lonlat(df_userpts['longitude'],df_userpts['latitude'])
 
-            df_userpts['x'] = x
-            df_userpts['y'] = y
+                df_userpts['x'] = x
+                df_userpts['y'] = y
+
+            x = df_userpts['x']
+            y = df_userpts['y']
 
             if cldmask_nc is not None:
                 cldmask = get_cloudmask(cldmask_nc)
             else:
                 cldmask = xr.ones_like(lcmask)
-                
+
             daily_mask = lcmask * cldmask
 
             if band_list is None:

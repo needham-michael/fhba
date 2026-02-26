@@ -17,6 +17,7 @@ paths: # relative to /fhba/app/
   processed_data_dir: "./appdata/processed"
   truecolor_img_dir: "./appdata/truecolor_images"
   userpts_dir: "./appdata/userpts"
+  burnmask_dir: "./appdata/burnmask"
   county_shp: "./appdata/_static/FH_Counties_Updated.shp/FH_Counties_Updated"
 
 viirs:

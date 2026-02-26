@@ -11,13 +11,16 @@ import yaml
 
 import earthaccess
 import holoviews as hv
+import geopandas as gpd
 import numpy as np
 import pandas as pd
+import requests
 import xarray as xr
 
 from satpy.scene import Scene
 from satpy.enhancements import overlays
 
+from fhba.eucl_classifier import classify_pixels_eucl
 from fhba.image import nonlinear_enhancement
 
 class GranuleManager:
@@ -29,7 +32,7 @@ class GranuleManager:
                  raw_granules_by_date=None,processed_granules_by_date=None,
                  truecolor_images_by_date=None,full_band_list=None,nir_red_band_list=None,
                  userpts_dir=None, cloud_mask_short_name=None,userpts_by_date=None,
-                 burnmasks_by_date=None):
+                 burnmasks_by_date=None,burnmask_dir=None):
         
         self.satellite_name = satellite_name
         self.instrument = instrument.lower() if instrument is not None else None
@@ -87,6 +90,29 @@ class GranuleManager:
         if burnmasks_by_date is None:
             self.burnmasks_by_date = {}
 
+    def classify_pixels(self,date,method='eucl',landcover_mask_file=None):
+
+        nc_file = self.processed_granules_by_date[date]
+        points_csv_file = self.userpts_by_date[date]
+        cldmask_file = self.processed_cloud_masks_by_date[date]
+
+        if landcover_mask_file is None:
+            landcover_mask_file = "./tmp_lcmask.tif"
+
+        if method == 'eucl':
+            burnmask = classify_pixels_eucl(
+                userpts_csv=points_csv_file,
+                processed_nc=nc_file,
+                cldmask_nc=cldmask_file,
+                landmask_nc=landcover_mask_file,
+                area_def=self.satpy_area_def
+            ) 
+
+        else: 
+            raise NotImplementedError(f"Classification method {method} not implemented.")
+
+        return burnmask
+
     def prepare_data(self,date):
         """Prepare data for a given date by downloading and preprocessing granules."""
 
@@ -97,7 +123,7 @@ class GranuleManager:
         self.download_cloud_mask_granules(date=date,cloud_mask_granule_search_results=cloud_mask_granules)
         self.preprocess_granules(date=date)
 
-    def preprocess_granules(self,date):
+    def preprocess_granules(self,date,truecolor_from_worldview=False):
         """Preprocess raw satellite granules for further analysis
 
         Performs the following operations:
@@ -188,9 +214,15 @@ class GranuleManager:
         
         else:
 
-            # Generate true color image with county overlay and save to disk
-            print(f"Generating true color image preview")
-            self.generate_truecolor_image(date,scene_regional,out_path=truecolor_file,overwrite=False)
+            if truecolor_from_worldview:
+
+                self.retrieve_truecolor_image(date,out_path=truecolor_file,overwrite=False)
+
+            else:
+
+                # Generate true color image with county overlay and save to disk
+                print(f"Generating true color image preview")
+                self.generate_truecolor_image(date,scene_regional,out_path=truecolor_file,overwrite=False)
 
         if cloud_mask_nc_file_exists:
             print(f"Processed cloud mask netcdf file already exists for {date}. Skipping save step.")
@@ -215,6 +247,8 @@ class GranuleManager:
 
             self.processed_cloud_masks_by_date[date] = cloud_mask_nc_file
             self.update_processing_status(date,True)
+
+            
 
         return 
 
@@ -255,9 +289,12 @@ class GranuleManager:
             return None
 
         print("Beginning Search for granules...")
+        bounding_box = self.spatial
+
+        print(f"{bounding_box = }")
         granule_search_results = earthaccess.search_data(
             short_name=self.short_name_list,
-            bounding_box=self.spatial,
+            bounding_box=tuple(bounding_box),
             temporal=(date,date),
             day_night_flag=day_night_flag,
             instrument=self.instrument.upper(),
@@ -372,6 +409,17 @@ class GranuleManager:
     def download_granules_date_range(self,day_night_flag='day',outdir=None,clobber=False):
         pass
 
+    def get_county_overlay(self,color='white',line_width=0.75):
+
+        county_gdf = gpd.read_file(self.county_shp + ".shp")
+        county_gdf = county_gdf.to_crs(self.satpy_area_def.to_cartopy_crs())
+        
+        county_overlay = hv.Path(county_gdf.geometry).opts(
+            color=color, line_width=line_width
+        )
+
+        return county_overlay
+    
     def generate_truecolor_image(self,date,scene_regional,out_path,overwrite=False):
 
         granules = self.raw_granules_by_date[date]
@@ -411,7 +459,90 @@ class GranuleManager:
         
         return 
     
-    def get_nir_red_hv_rgb(self,date,in_app=False):
+    def retrieve_worldview_image(self,date,out_path,overwrite=False,truecolor=True):
+
+        if os.path.exists(out_path) and not overwrite:
+            print("True color image already exists. Skipping retrieval but adding file to Registry.")
+            self.truecolor_images_by_date[date] = out_path
+
+            return
+        
+        url_worldview = r"https://wvs.earthdata.nasa.gov/api/v1/snapshot?REQUEST=GetSnapshot&TIME=DATEPLACEHOLDERT00:00:00Z&BBOX=BBOXPLACEHOLDER&CRS=EPSG:4326&LAYERS=SATNAME_CorrectedReflectance_PRODUCT,Coastlines_15m&WRAP=day,x&FORMAT=image/jpeg&WIDTH=1138&HEIGHT=1820&colormaps=,&ts=1772050098509"
+
+        if truecolor:
+            url_worldview = url_worldview.replace("PRODUCT", "TrueColor")
+        else:
+            url_worldview = url_worldview.replace("PRODUCT", "BandsM11-I2-I1")
+
+        url_worldview = url_worldview.replace("DATEPLACEHOLDER", date)
+
+        bbox = f"{self.min_lat},{self.min_lon},{self.max_lat},{self.max_lon}"
+        url_worldview = url_worldview.replace("BBOXPLACEHOLDER", bbox)
+
+        sat_name = {
+            'Suomi-NPP':'VIIRS_SNPP',
+            'NOAA-20':'VIIRS_NOAA20',
+            'NOAA-21':'VIIRS_NOAA21'
+        }
+
+        url_worldview = url_worldview.replace("SATNAME", sat_name[self.satellite_name])
+
+        print(f"{url_worldview = }")
+
+        response = requests.get(url_worldview)
+        if response.status_code == 200:
+            with open(out_path, 'wb') as f:
+                f.write(response.content)
+            self.truecolor_images_by_date[date] = out_path
+            print(f"True color image retrieved and saved to {out_path}")
+        else:
+            print(f"Failed to retrieve true color image. HTTP status code: {response.status_code}")
+
+        return
+    
+    def get_nir_red_mwir_hv_rgb(self,date,in_app=False,include_counties=True,no_title=False):
+        """Generate false-color composite image from VIIRS bands M11-I02-I01"""
+
+        if date is None:
+            return None
+        
+        if date not in self.processed_granules_by_date:
+            msg = f"No preprocessed granules found for date {date}."
+            if in_app:
+                return msg
+            else:
+                raise ValueError(msg)
+            
+        ds = xr.open_dataset(self.processed_granules_by_date[date])
+
+        red = ds[self.nir_red_mwir_band_list[0]].load()
+        nir = ds[self.nir_red_mwir_band_list[1]].load()
+        mwir = ds[self.nir_red_mwir_band_list[2]].load()
+
+        r = nonlinear_enhancement(255 * mwir.values / 100) / 255
+        g = nonlinear_enhancement(255 * nir.values / 100) / 255
+        b = nonlinear_enhancement(255 * red.values / 100) / 255
+
+        img = xr.concat(
+            [xr.DataArray(c,dims=red.dims,coords=red.coords)for c in [r,g,b]],
+            dim="band"
+            ).transpose(...,"band")
+        
+        rgb = hv.RGB((ds.x,ds.y,img.values)).opts(
+            width=500,
+            height=1000,
+            title=f"{self.satellite_name} {self.instrument.upper()} NIR-Red Composite for {date}" if not no_title else "",
+            )
+        
+        if include_counties:
+            
+            county_overlay = self.get_county_overlay()
+
+            rgb = rgb * county_overlay
+
+        return rgb
+    
+    def get_nir_red_hv_rgb(self,date,in_app=False,include_counties=True,no_title=False):
 
         if date is None:
             return None
@@ -425,11 +556,14 @@ class GranuleManager:
         
         ds = xr.open_dataset(self.processed_granules_by_date[date])
 
+        # TODO: NIR and RED are labeled backwards in this function; need to update the
+        # labels, but waiting to do so until can confirm nothing breaks in the wider
+        # application. Will also need to update the CONFIG file and test/confirm
         nir = ds[self.nir_red_band_list[0]].load()
         red = ds[self.nir_red_band_list[1]].load()
 
-        lons = ds.longitude.isel(y=0)
-        lats = ds.latitude.isel(x=0)
+        # lons = ds.longitude.isel(y=0)
+        # lats = ds.latitude.isel(x=0)
 
         r = nonlinear_enhancement(255 * nir.values / 100) / 255
         g = nonlinear_enhancement(255 * red.values / 100) / 255
@@ -440,12 +574,50 @@ class GranuleManager:
             dim="band"
             ).transpose(...,"band")
         
-        rgb = hv.RGB((lons,lats,img.values)).opts(
+        rgb = hv.RGB((ds.x,ds.y,img.values)).opts(
             width=500,
             height=1000,
-            title=f"{self.satellite_name} {self.instrument.upper()} NIR-Red Composite for {date}")
+            title=f"{self.satellite_name} {self.instrument.upper()} NIR-Red Composite for {date}" if not no_title else "",
+            )
+        
+        if include_counties:
+            
+            county_overlay = self.get_county_overlay()
+
+            rgb = rgb * county_overlay
 
         return rgb
+    
+    def get_burnmask_hv_rgb(self,burnmask_array=None,burnmask_file=None,include_counties=True):
+
+        if burnmask_array is None and burnmask_file is None:
+            raise ValueError("Either burnmask_array or burnmask_file must be provided to get burnmask hv QuadMesh.")
+        
+        if burnmask_array is None:
+            raise NotImplementedError("Loading burnmask from file not yet implemented.")
+        
+    
+        # RGB appears to be much faster than QuadMesh, render burnmask as a white/orange image
+        rgb = [213,94,0]
+        da = 255 * (1-burnmask_array.values).astype(int)
+        burnmask_qm = hv.RGB((
+                burnmask_array.x,
+                burnmask_array.y,
+                np.clip(da+rgb[0],0,255),
+                np.clip(da+rgb[1],0,255),
+                np.clip(da+rgb[2],0,255),
+        )).opts(
+            width=500,
+            height=1000,
+        )
+
+        if include_counties:
+
+            county_overlay = self.get_county_overlay(color='k')
+
+            burnmask_qm = burnmask_qm * county_overlay
+
+        return burnmask_qm
     
     def review_file_status(self):
         raise NotImplementedError("Method review_file_status not yet implemented.")
@@ -475,6 +647,7 @@ class GranuleManager:
         df['user_categorization'] = self.user_categorization_by_date
         df['analysis_status'] = self.analysis_status
         df['categorization_status'] = self.categorization_status
+        df['truecolor_images_by_date'] = self.truecolor_images_by_date
         print("Ending to_df")
         return df
 
@@ -488,7 +661,7 @@ class GranuleRegistry:
                  viirs_band_list=None,viirs_nir_red_band_list=None,modis_short_names=None,
                  modis_band_list=None,modis_nir_red_band_list=None,satpy_area_def=None,
                  county_shp=None,supported_instruments=None,userpts_dir=None,
-                 viirs_cloud_mask_short_names=None):
+                 viirs_cloud_mask_short_names=None,burnmask_dir=None):
 
         self.data_year = data_year
         self.start_month = start_month
@@ -499,6 +672,7 @@ class GranuleRegistry:
         self.processed_data_dir = processed_data_dir
         self.truecolor_img_dir = truecolor_img_dir
         self.userpts_dir = userpts_dir
+        self.burnmask_dir = burnmask_dir
         self.county_shp = county_shp
         self.min_lat = min_lat
         self.min_lon = min_lon
@@ -549,6 +723,7 @@ class GranuleRegistry:
                 processed_data_dir=self.processed_data_dir + "/" + satellite_name,
                 truecolor_img_dir=self.truecolor_img_dir + "/" + satellite_name,
                 userpts_dir=self.userpts_dir + "/" + satellite_name,
+                burnmask_dir=self.burnmask_dir + "/" + satellite_name,
                 full_band_list=full_band_list,
                 cloud_mask_short_name=cloud_mask_short_name,
                 nir_red_band_list=nir_red_band_list,
@@ -628,6 +803,7 @@ class Registry:
                 processed_data_dir=self.processed_data_dir + "/" + str(data_year),
                 truecolor_img_dir=self.truecolor_img_dir + "/" + str(data_year),
                 userpts_dir=self.userpts_dir + "/" + str(data_year),
+                burnmask_dir=self.burnmask_dir + "/" + str(data_year),
                 county_shp = self.county_shp,
                 min_lat=self.min_lat,
                 min_lon=self.min_lon,
@@ -720,6 +896,7 @@ class Registry:
         self.processed_data_dir = str(proj_home_dir / config['paths'].get('processed_data_dir', None))
         self.truecolor_img_dir  = str(proj_home_dir / config['paths'].get('truecolor_img_dir', None))
         self.userpts_dir        = str(proj_home_dir / config['paths'].get('userpts_dir', None))
+        self.burnmask_dir       = str(proj_home_dir / config['paths'].get('burnmask_dir', None))
         self.county_shp         = str(proj_home_dir / config['paths'].get('county_shp', None))
 
         # Satellite-specific Config
