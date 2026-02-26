@@ -1,5 +1,6 @@
 
 import importlib
+import os
 from time import perf_counter
 
 import numpy as np
@@ -23,11 +24,20 @@ def main():
 
     start_time = perf_counter()
 
-    nlcd_input_file = importlib.resources.files("fhba.app.appdata.annual_nlcd") / "Annual_NLCD_LndCov_2024_CU_C1V1.tif"
+    config = read_config()
+
+    try:
+        nlcd_filedir = config['nlcd']['nlcd_filedir']
+        nlcd_filename = config['nlcd']['nlcd_filename'] 
+
+        if nlcd[:4] == "fhba":
+            nlcd_input_file = importlib.resources.files(nlcd_filedir.replace("/",".")) / nlcd_filename
+        else:
+            nlcd_input_file = os.path.join(nlcd_filedir, nlcd_filename)
+    except ModuleNotFoundError as e:
+        raise FileNotFoundError("Could not find NLCD input file. Please ensure that the file 'Annual_NLCD_LndCov' file is located in the 'appdata/annual_nlcd' directory of the 'fhba.app' package.") from e
 
     print("Reading NLCD data and clipping to spatial extent defined in config.yaml...")
-    
-    config = read_config()
 
     spatial_name = config['spatial']['spatial_name']
 
