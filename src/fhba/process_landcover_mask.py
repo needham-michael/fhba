@@ -30,7 +30,7 @@ def main():
         nlcd_filedir = config['nlcd']['nlcd_filedir']
         nlcd_filename = config['nlcd']['nlcd_filename'] 
 
-        if nlcd[:4] == "fhba":
+        if nlcd_filedir[:4] == "fhba":
             nlcd_input_file = importlib.resources.files(nlcd_filedir.replace("/",".")) / nlcd_filename
         else:
             nlcd_input_file = os.path.join(nlcd_filedir, nlcd_filename)
