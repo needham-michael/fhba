@@ -251,31 +251,34 @@ class GranuleManager:
 
         return 
     
-    def resample_landmask(self,landcover_mask_file_fullres,landcover_mask_file):
+    def resample_landmask(self,landcover_mask_file_fullres,landcover_mask_file,flip_single_pixels=True):
+        """Resample NLCD Land Mask to the local spatial domain using nearest-neighbor"""
         import rasterio
         import rioxarray as rxr
         from pyresample import image, geometry
-        from pyresample.bilinear import XArrayBilinearResampler
+        from pyresample.kd_tree import XArrayResamplerNN
         from rasterio.transform import Affine
         
-        from fhba.process_landcover_mask import get_nlcd_area_definition
+        from fhba.process_landcover_mask import get_nlcd_area_definition, flip_singletons
 
         nlcd_mask = rxr.open_rasterio(landcover_mask_file_fullres)
 
         area_nlcd = get_nlcd_area_definition(nlcd_mask)
 
-        resampler_bilinear = XArrayBilinearResampler(
+        resampler = XArrayResamplerNN(
             source_geo_def=area_nlcd,
             target_geo_def=self.satpy_area_def,
             radius_of_influence=90
         )
 
-        nlcd_mask_resampled_bi = resampler_bilinear.resample(nlcd_mask.isel(band=0))
+        # The following line appears to fix a bug within pyresample. Otherwise the get_sample_from_neighbour_info
+        # function call fails...
+        resampler.index_array = resampler.get_neighbour_info()[2]
 
-        # Make the mask more 'conservative' where resampled pixels greater than zero
-        # but less than one are mapped to zero
-        nlcd_mask_resampled = np.floor(nlcd_mask_resampled_bi)
-        # nlcd_mask_resampled = (nlcd_mask_resampled_bi / nlcd_mask_resampled_bi).fillna(0)
+        nlcd_mask_resampled = resampler.get_sample_from_neighbour_info(
+            data=nlcd_mask.isel(band=0),
+            fill_value=nlcd_mask._FillValue
+        )
 
         extent = self.satpy_area_def.area_extent
 
@@ -301,8 +304,13 @@ class GranuleManager:
             crs=self.satpy_area_def.crs.to_proj4(),
             transform=geotransform
         ) as dst:
+            
+            nlcd_mask_values = nlcd_mask_resampled.values
+            
+            if flip_single_pixels:
+                nlcd_mask_values = flip_singletons(nlcd_mask_values,diagonals=False)
 
-            dst.write(nlcd_mask_resampled.values,1)
+            dst.write(nlcd_mask_values,1)
 
         return
 

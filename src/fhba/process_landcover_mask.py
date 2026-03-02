@@ -6,6 +6,8 @@ from time import perf_counter
 import numpy as np
 import rioxarray as rxr
 
+from scipy import ndimage as ndi
+
 from pyresample import image, geometry
 
 import yaml
@@ -54,6 +56,78 @@ def get_nlcd_area_definition(nlcd_mask):
     )
 
     return area_nlcd
+
+def flip_singletons(binary: np.ndarray, diagonals: bool = True, which: str = "both") -> np.ndarray:
+    """
+    Flip isolated single-pixel features in a 2D binary raster.
+
+    Parameters
+    ----------
+    binary : np.ndarray
+        2D boolean array (True/False). Non-boolean inputs will be cast to bool.
+    diagonals : bool, default True
+        If True, use 8-connectivity (diagonal neighbors included).
+        If False, use 4-connectivity (no diagonal neighbors).
+    which : {"true", "false", "both"}, default "both"
+        Which singletons to flip:
+        - "true": flip only isolated True pixels to False
+        - "false": flip only isolated False pixels to True
+        - "both": flip both isolated True and isolated False pixels
+
+    Returns
+    -------
+    np.ndarray
+        A boolean array with the same shape as `binary`, with selected singletons flipped.
+
+    Notes
+    -----
+    - A "singleton" is defined as a connected component of size 1 under the chosen connectivity.
+    - Connectivity:
+        * 8-connectivity considers neighbors in a 3x3 block.
+        * 4-connectivity considers only N, S, E, W neighbors.
+    """
+    arr = np.asarray(binary, dtype=bool)
+    if arr.ndim != 2:
+        raise ValueError("Input must be a 2D array")
+
+    # Structuring element for connectivity
+    if diagonals:
+        structure = np.ones((3, 3), dtype=bool)  # 8-connectivity
+    else:
+        structure = np.array([[0, 1, 0],
+                              [1, 1, 1],
+                              [0, 1, 0]], dtype=bool)  # 4-connectivity
+
+    # Work on a copy for output; derive masks from the original to avoid interference
+    out = arr.copy()
+
+    which = which.lower()
+    if which not in {"true", "false", "both"}:
+        raise ValueError("`which` must be one of {'true', 'false', 'both'}")
+
+    # Isolated True pixels (size-1 True components)
+    if which in {"true", "both"}:
+        labels_t, _ = ndi.label(arr, structure=structure)
+        sizes_t = np.bincount(labels_t.ravel())
+        if sizes_t.size:
+            sizes_t[0] = 0  # never treat background as a singleton
+        singleton_labels_t = np.flatnonzero(sizes_t == 1)
+        if singleton_labels_t.size:
+            mask_single_true = np.isin(labels_t, singleton_labels_t)
+            out[mask_single_true] = False
+
+    # Isolated False pixels (size-1 False components) — label the complement
+    if which in {"false", "both"}:
+        labels_f, _ = ndi.label(~arr, structure=structure)
+        sizes_f = np.bincount(labels_f.ravel())
+        if sizes_f.size:
+            sizes_f[0] = 0  # never treat background as a singleton
+        singleton_labels_f = np.flatnonzero(sizes_f == 1)
+        if singleton_labels_f.size:
+            mask_single_false = np.isin(labels_f, singleton_labels_f)
+            out[mask_single_false] = True
+
+    return out
 
 def main():
 
