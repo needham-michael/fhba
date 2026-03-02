@@ -1,0 +1,676 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<metadata>
+  <idinfo>
+    <citation>
+      <citeinfo>
+        <origin>U.S. Geological Survey</origin>
+        <pubdate>20250625</pubdate>
+        <title>Annual National Land Cover Database (NLCD) Collection 1 Land Cover Conterminous United States (ver. 1.1, June 2025)</title>
+        <geoform>raster digital data</geoform>
+        <serinfo>
+          <sername>None</sername>
+          <issue>None</issue>
+        </serinfo>
+        <pubinfo>
+          <pubplace>Sioux Falls, SD</pubplace>
+          <publish>U.S. Geological Survey</publish>
+        </pubinfo>
+        <onlink>https://doi.org/10.5066/P94UXNTS</onlink>
+        <onlink>https://www.mrlc.gov/data</onlink>
+        <lworkcit>
+          <citeinfo>
+            <origin>U.S. Geological Survey</origin>
+            <pubdate>2025</pubdate>
+            <title>Annual NLCD (National Land Cover Database)—The next generation of land cover mapping</title>
+            <edition>U.S. Geological Survey Fact Sheet 2025–3001, 4 p.</edition>
+            <geoform>publication</geoform>
+            <othercit>U.S. Geological Survey, 2025, Annual NLCD (National Land Cover Database)—The next generation of land cover mapping: U.S. Geological Survey Fact Sheet 2025–3001, 4 p., https://doi.org/10.3133/fs20253001.</othercit>
+            <onlink>https://doi.org/10.3133/fs20253001</onlink>
+          </citeinfo>
+        </lworkcit>
+      </citeinfo>
+    </citation>
+    <descript>
+      <abstract>The USGS Land Cover program has combined the tried-and-true methodologies from premier land cover projects, National Land Cover Database (NLCD) and Land Change Monitoring, Assessment, and Projection (LCMAP), together with modern innovations in geospatial deep learning technologies to create the next generation of land cover and land change information. The product suite is called, “Annual NLCD” and includes six annual products that represent land cover and surface change characteristics of the U.S.:
+
+  1) Land Cover,
+  2) Land Cover Change,
+  3) Land Cover Confidence,
+  4) Fractional Impervious Surface,
+  5) Impervious Descriptor, and
+  6) Spectral Change Day of Year.
+
+These land cover science product algorithms harness the remotely sensed Landsat data record to provide state-of-the-art land surface change information needed by scientists, resource managers, and decision-makers. Annual NLCD uses a modernized, integrated approach to map, monitor, synthesize, and understand the complexities of land use, cover, and condition change. With this second release, Annual NLCD, Collection 1.1, the six products are available for the Conterminous U.S. for 1985–2024. 
+        
+Questions about the Annual NLCD product suite can be directed to the Annual NLCD mapping team at USGS EROS, Sioux Falls, SD (605) 594-6151 or custserv@usgs.gov. See included spatial metadata for more details.</abstract>
+      <purpose>The goal of this project is to provide the Nation with complete, current, and consistent public domain information on its land use and land cover.</purpose>
+    </descript>
+    <timeperd>
+      <timeinfo>
+        <rngdates>
+          <begdate>1985</begdate>
+          <enddate>2024</enddate>
+        </rngdates>
+      </timeinfo>
+      <current>ground condition</current>
+    </timeperd>
+    <status>
+      <progress>Complete</progress>
+      <update>Annually</update>
+    </status>
+    <spdom>
+      <bounding>
+        <westbc>-129.27731989810934</westbc>
+        <eastbc>-63.118429521429235</eastbc>
+        <northbc>52.921719733858104</northbc>
+        <southbc>21.805095225544456</southbc>
+      </bounding>
+    </spdom>
+    <keywords>
+      <theme>
+        <themekt>ISO 19115 Topic Category</themekt>
+        <themekey>imageryBaseMapsEarthCover</themekey>
+        <themekey>environment</themekey>
+      </theme>
+      <theme>
+        <themekt>USGS Thesaurus</themekt>
+        <themekey>Time Series</themekey>
+        <themekey>Landsat</themekey>
+        <themekey>Analysis Ready Data (ARD)</themekey>
+        <themekey>Land Cover</themekey>
+        <themekey>Change Detection</themekey>
+        <themekey>Earth Observations</themekey>
+        <themekey>Image Processing</themekey>
+        <themekey>Geographic Information Science (GIS)</themekey>
+        <themekey>U.S. Geological Survey (USGS)</themekey>
+        <themekey>Digital Spatial Data</themekey>
+      </theme>
+      <place>
+        <placekt>Common Geographic Areas</placekt>
+        <placekey>United States</placekey>
+        <placekey>USA</placekey>
+        <placekey>CONUS</placekey>
+      </place>
+    </keywords>
+    <accconst>None. Please see 'Distribution Info' for details.</accconst>
+    <useconst>None. Users are advised to read the dataset's metadata thoroughly to understand appropriate use and data limitations.</useconst>
+    <ptcontac>
+      <cntinfo>
+        <cntorgp>
+          <cntorg>U.S. Geological Survey</cntorg>
+        </cntorgp>
+        <cntpos>Customer Service Representative</cntpos>
+        <cntaddr>
+          <addrtype>mailing and physical</addrtype>
+          <address>47914 252nd Street</address>
+          <city>Sioux Falls</city>
+          <state>SD</state>
+          <postal>57198-0001</postal>
+          <country>USA</country>
+        </cntaddr>
+        <cntvoice>605-594-6151</cntvoice>
+        <cntfax>605-594-6589</cntfax>
+        <cntemail>custserv@usgs.gov</cntemail>
+      </cntinfo>
+    </ptcontac>
+    <datacred>These products were created by the Annual NLCD team at USGS EROS, Sioux Falls, SD. Refer to the contact information throughout the metadata to contact the team.</datacred>
+    <native>Custom cloud based processing environment</native>
+    <crossref>
+      <citeinfo>
+        <origin>Jesslyn F. Brown</origin>
+        <origin>Heather J. Tollerud</origin>
+        <origin>Christopher P. Barber</origin>
+        <origin>Qiang Zhou</origin>
+        <origin>John L. Dwyer</origin>
+        <origin>James E. Vogelmann</origin>
+        <origin>Thomas R. Loveland</origin>
+        <origin>Curtis E. Woodcock</origin>
+        <origin>Stephen V. Stehman</origin>
+        <origin>Zhe Zhu</origin>
+        <origin>Bruce W. Pengra</origin>
+        <origin>Kelcy Smith</origin>
+        <origin>Josephine A. Horton</origin>
+        <origin>George Xian</origin>
+        <origin>Roger F. Auch</origin>
+        <origin>Terry L. Sohl</origin>
+        <origin>Kristi L. Sayler</origin>
+        <origin>Alisa L. Gallant</origin>
+        <origin>Daniel Zelenak</origin>
+        <origin>Ryan R. Reker</origin>
+        <origin>Jennifer Rover</origin>
+        <pubdate>20200301</pubdate>
+        <title>Lessons learned implementing an operational continuous United States national land change monitoring capability: The Land Change Monitoring, Assessment, and Projection (LCMAP) approach</title>
+        <geoform>publication</geoform>
+        <serinfo>
+          <sername>Remote Sensing of Environment</sername>
+          <issue>vol. 238, issue 111356</issue>
+        </serinfo>
+        <othercit>https://www.sciencedirect.com/science/article/pii/S003442571930375X</othercit>
+        <onlink>https://doi.org/10.1016/j.rse.2019.111356</onlink>
+      </citeinfo>
+    </crossref>
+    <crossref>
+      <citeinfo>
+        <origin>Bruce W. Pengra</origin>
+        <origin>Jordan Long</origin>
+        <origin>Devendra Dahal</origin>
+        <origin>Stephen V. Stehman</origin>
+        <origin>Thomas R. Loveland</origin>
+        <pubdate>201508</pubdate>
+        <title>A global reference database from very high resolution commercial satellite data and methodology for application to Landsat derived 30 m continuous field tree cover data</title>
+        <geoform>publication</geoform>
+        <serinfo>
+          <sername>Remote Sensing of Environment</sername>
+          <issue>vol. 165, pages 234-248</issue>
+        </serinfo>
+        <othercit>https://www.sciencedirect.com/science/article/pii/S003442571500036X</othercit>
+        <onlink>https://doi.org/10.1016/j.rse.2015.01.018</onlink>
+      </citeinfo>
+    </crossref>
+    <crossref>
+      <citeinfo>
+        <origin>Bruce W. Pengra</origin>
+        <origin>Stephen V. Stehman</origin>
+        <origin>Josephine A. Horton</origin>
+        <origin>Daryn J. Dockter</origin>
+        <origin>Todd A. Schroeder</origin>
+        <origin>Zhiqiang Yang</origin>
+        <origin>Warren B. Cohen</origin>
+        <origin>Sean P. Healey</origin>
+        <origin>Thomas R. Loveland</origin>
+        <pubdate>20200301</pubdate>
+        <title>Quality control and assessment of interpreter consistency of annual land cover reference data in an operational national monitoring program</title>
+        <geoform>publication</geoform>
+        <serinfo>
+          <sername>Remote Sensing of Environment</sername>
+          <issue>vol. 238, issue 111261</issue>
+        </serinfo>
+        <othercit>https://www.sciencedirect.com/science/article/pii/S0034425719302809</othercit>
+        <onlink>https://doi.org/10.1016/j.rse.2019.111261</onlink>
+      </citeinfo>
+    </crossref>
+    <crossref>
+      <citeinfo>
+        <origin>George Xian</origin>
+        <origin>Hua Shi</origin>
+        <origin>Qiang Zhou</origin>
+        <origin>Roger Auch</origin>
+        <origin>Kevin Gallo</origin>
+        <origin>Zhuoting Wu</origin>
+        <origin>Michael Kolian</origin>
+        <pubdate>202202</pubdate>
+        <title>Monitoring and characterizing multi-decadal variations of urban thermal condition using time-series thermal remote sensing and dynamic land cover data</title>
+        <geoform>publication</geoform>
+        <serinfo>
+          <sername>Remote Sensing of Environment</sername>
+          <issue>vol. 269, issue 112803</issue>
+        </serinfo>
+        <othercit>https://www.sciencedirect.com/science/article/pii/S003442572100523X</othercit>
+        <onlink>https://doi.org/10.1016/j.rse.2021.112803</onlink>
+      </citeinfo>
+    </crossref>
+    <crossref>
+      <citeinfo>
+        <origin>Heather J. Tollerud</origin>
+        <origin>Zhe Zhu</origin>
+        <origin>Kelcy Smith</origin>
+        <origin>Danika F. Wellington</origin>
+        <origin>Reza A. Hussain</origin>
+        <origin>Donna Viola</origin>
+        <pubdate>20230201</pubdate>
+        <title>Toward consistent change detection across irregular remote sensing time series observations</title>
+        <geoform>publication</geoform>
+        <serinfo>
+          <sername>Remote Sensing of Environment</sername>
+          <issue>vol. 285, issue 113372</issue>
+        </serinfo>
+        <othercit>https://www.sciencedirect.com/science/article/pii/S0034425722004783</othercit>
+        <onlink>https://doi.org/10.1016/j.rse.2022.113372</onlink>
+      </citeinfo>
+    </crossref>
+    <crossref>
+      <citeinfo>
+        <origin>Suming Jin</origin>
+        <origin>Jon Dewitz</origin>
+        <origin>Congcong Li</origin>
+        <origin>Daniel Sorenson</origin>
+        <origin>Zhe Zhu</origin>
+        <origin>Md Rakibul Islam Shogib</origin>
+        <origin>Patrick Danielson</origin>
+        <origin>Brian Granneman</origin>
+        <origin>Catherine Costello</origin>
+        <origin>Adam Case</origin>
+        <origin>Leila Gass</origin>
+        <pubdate>20230228</pubdate>
+        <title>National Land Cover Database 2019: A Comprehensive Strategy for Creating the 1986–2019 Forest Disturbance Product</title>
+        <geoform>publication</geoform>
+        <serinfo>
+          <sername>Journal of Remote Sensing</sername>
+          <issue>vol. 3, article id 0021</issue>
+        </serinfo>
+        <othercit>https://spj.science.org/doi/10.34133/remotesensing.0021</othercit>
+        <onlink>https://doi.org/10.34133/remotesensing.0021</onlink>
+      </citeinfo>
+    </crossref>
+    <crossref>
+      <citeinfo>
+        <origin>Suming Jin</origin>
+        <origin>Jon Dewitz</origin>
+        <origin>Patrick Danielson</origin>
+        <origin>Brian Granneman</origin>
+        <origin>Catherine Costello</origin>
+        <origin>Kelcy Smith</origin>
+        <origin>Zhe Zhu</origin>
+        <pubdate>20230221</pubdate>
+        <title>National Land Cover Database 2019: A New Strategy for Creating Clean Leaf-On and Leaf-Off Landsat Composite Images</title>
+        <geoform>publication</geoform>
+        <serinfo>
+          <sername>Journal of Remote Sensing</sername>
+          <issue>vol. 3, article id 0022</issue>
+        </serinfo>
+        <othercit>https://spj.science.org/doi/10.34133/remotesensing.0022</othercit>
+        <onlink>https://doi.org/10.34133/remotesensing.0022</onlink>
+      </citeinfo>
+    </crossref>
+  </idinfo>
+  <dataqual>
+    <attracc>
+      <attraccr>A formal accuracy assessment is in progress for the Annual NLCD product suite. </attraccr>
+    </attracc>
+    <logic>An internal review process was conducted to check for erroneous data artifacts, duplications, and omissions to ensure the integrity of the geospatial data products. </logic>
+    <complete>Dataset is considered complete for the information presented, as described in the abstract. Users are advised to read the rest of the metadata record carefully for additional details. </complete>
+    <posacc>
+      <horizpa>
+        <horizpar>No formal positional accuracy tests were conducted. </horizpar>
+      </horizpa>
+      <vertacc>
+        <vertaccr>No formal positional accuracy tests were conducted. </vertaccr>
+      </vertacc>
+    </posacc>
+    <lineage>
+      <srcinfo>
+        <srccite>
+          <citeinfo>
+            <origin>U.S. Geological Survey</origin>
+            <pubdate>2025</pubdate>
+            <title>Annual National Land Cover Database (NLCD) Collection 1 Science Product User Guide</title>
+            <geoform>publication</geoform>
+            <onlink>https://www.mrlc.gov/documentation</onlink>
+          </citeinfo>
+        </srccite>
+        <typesrc>Digital and/or Hardcopy</typesrc>
+        <srctime>
+          <timeinfo>
+            <sngdate>
+              <caldate>2025</caldate>
+            </sngdate>
+          </timeinfo>
+          <srccurr>ground condition</srccurr>
+        </srctime>
+        <srccitea>Annual NLCD SPUG</srccitea>
+        <srccontr>The Annual National Land Cover Database (NLCD) Collection 1 Science Product User Guide describes in detail the source inputs used, data product suite details, methodology, validation, and other important details of the Annual NLCD Product Suite. </srccontr>
+      </srcinfo>
+      <procstep>
+        <procdesc>Reference Document
+          
+Please reference the Annual National Land Cover Database (NLCD) Collection 1 Science Product User Guide for more detailed methodology and information. The user guide can be found at https://www.mrlc.gov/documentation. 
+        </procdesc>
+        <procdate>2025</procdate>
+      </procstep>
+      <procstep>
+        <procdesc>Time Series
+
+The Landsat STAC-server is queried for all observations in a specific Landsat Collection 2 ARD tile. The surface reflectance, brightness temperature, and pixel quality layers are then accessed from Landsat cloud storage and placed in a time series optimized Zarr array to efficiently support downstream operations.
+        </procdesc>
+        <procdate>2025</procdate>
+      </procstep>
+      <procstep>
+        <procdesc>Continuous Change Detection
+
+Surface reflectance, brightness temperature, and pixel quality information is read in from a time series optimized Zarr array for a given tile. This data is then processed through the Band First Probability (BFP) Continuous Change Detection (CCD) algorithm, with the results stored as parquet files within cloud data stores.
+        </procdesc>
+        <procdate>2025</procdate>
+      </procstep>
+      <procstep>
+        <procdesc>Leaf-On Annual Composites
+
+Surface reflectance and pixel quality information is read from the Landsat Collection 2 ARD cloud archive stores for a given year and tile. The data is then passed to the compositing algorithm, with additional data for neighboring years gathered as needed. Results are stored as 6 band geotiffs within cloud data stores.
+        </procdesc>
+        <procdate>2025</procdate>
+      </procstep>
+      <procstep>
+        <procdesc>Leaf-Off Annual Synthetics
+
+BFP CCD parquet results are read in for a given tile and surface reflectance predictions are calculated based on the harmonic coefficients for corresponding years. Results are stored as 6 band geotiffs within cloud data stores.
+        </procdesc>
+        <procdate>2025</procdate>
+      </procstep>
+      <procstep>
+        <procdesc>Land Cover Classification Training
+
+Landsat Collection 1 ARD based leaf-on composites, leaf-off synthetics, digital elevation model (DEM), DEM slope, DEM positional index, DEM aspect, wetlands potential index (WPI), NLCD 2021, and LCMAP 1.3 CCD results are processed through the LCAMS algorithm using high performance/throughput computing architectures. The resulting models are then transitioned to cloud storage.
+        </procdesc>
+        <procdate>2025</procdate>
+      </procstep>
+      <procstep>
+        <procdesc>Land Cover Classification Prediction
+
+Leaf-on composites, leaf-off synthetics, and BFP CCD results are access from cloud storage and passed to the LCAMS algorithm. Spatial and refined soft max values are stored as Zarr arrays in cloud storage.
+</procdesc>
+        <procdate>2025</procdate>
+      </procstep>
+      <procstep>
+        <procdesc>Impervious Classification Training
+
+Landsat Collection 1 ARD based leaf-on composites, leaf-off synthetics, NLCD 2021 science product, NLCD 2021 impervious descriptor, and the DEM are processed through the LCAMS algorithm using HPC/HTC computing architectures. The resulting models are transitioned to cloud storage.
+        </procdesc>
+        <procdate>2025</procdate>
+      </procstep>
+      <procstep>
+        <procdesc>Impervious Classification Prediction
+
+Leaf-on composites, leaf-off synthetics, and the trained impervious model are read in and passed to the LCAMS algorithm with results being stored as Zarr arrays in cloud storage.
+        </procdesc>
+        <procdate>2025</procdate>
+      </procstep>
+      <procstep>
+        <procdesc>Post Classification
+
+Spatial, refined, and impervious probabilities are joined with BFP CCD results to pass through the different post classification methodologies. These steps include the STIPP method and various expert informed heuristics to identify and mitigate potential issues with any singular set of prediction probabilities. Product values are stored as intermediate tiff files.
+        </procdesc>
+        <procdate>2025</procdate>
+      </procstep>
+      <procstep>
+        <procdesc>Product Generation
+
+Intermediate product tiff files are read from cloud storage with the final data formatting steps are applied to generate cloud optimized geotiffs (COG) and associated metadata.
+        </procdesc>
+        <procdate>2025</procdate>
+      </procstep>
+      <procstep>
+        <procdesc>Intra-Collection Consistency
+ 
+The land cover product from the previous version is used as a base, and the newly generated land cover results are compared to determine areas of change to be updated across the products, except for spectral change DoY. The spectral change DoY product is updated for the latest 5 years to account for missed spectral disturbances due to timeseries dynamics.
+        </procdesc>
+        <procdate>2025</procdate>
+      </procstep>
+    </lineage>
+  </dataqual>
+  <spdoinfo>
+    <direct>Raster</direct>
+    <rastinfo>
+      <rasttype>Grid Cell</rasttype>
+      <rowcount>105000</rowcount>
+      <colcount>160000</colcount>
+      <vrtcount>1</vrtcount>
+    </rastinfo>
+  </spdoinfo>
+  <spref>
+    <horizsys>
+      <planar>
+        <mapproj>
+          <mapprojn>AEA_WGS84</mapprojn>
+          <albers>
+            <stdparll>29.5</stdparll>
+            <stdparll>45.5</stdparll>
+            <longcm>-96.0</longcm>
+            <latprjo>23.0</latprjo>
+            <feast>0.0</feast>
+            <fnorth>0.0</fnorth>
+          </albers>
+        </mapproj>
+        <planci>
+          <plance>row and column</plance>
+          <coordrep>
+            <absres>30.0</absres>
+            <ordres>30.0</ordres>
+          </coordrep>
+          <plandu>meters</plandu>
+        </planci>
+      </planar>
+      <geodetic>
+        <horizdn>WGS_1984</horizdn>
+        <ellips>WGS 84</ellips>
+        <semiaxis>6378137.0</semiaxis>
+        <denflat>298.257223563</denflat>
+      </geodetic>
+    </horizsys>
+  </spref>
+  <eainfo>
+    <detailed>
+      <enttyp>
+        <enttypl>Annual NLCD C1V1</enttypl>
+        <enttypd>Land Cover class counts and descriptions for the Annual NLCD Land Cover Database</enttypd>
+        <enttypds>U.S. Geological Survey</enttypds>
+      </enttyp>
+      <attr>
+        <attrlabl>OID</attrlabl>
+        <attrdef>Internal feature number.</attrdef>
+        <attrdefs>Annual NLCD</attrdefs>
+        <attrdomv>
+          <udom>Sequential unique whole numbers that are automatically generated.</udom>
+        </attrdomv>
+      </attr>
+      <attr>
+        <attrlabl>Count</attrlabl>
+        <attrdef>A nominal integer value that designates the number of pixels that have each value in the file; histogram column in raster attributes table.</attrdef>
+        <attrdefs>Annual NLCD</attrdefs>
+        <attrdomv>
+          <udom>Integer</udom>
+        </attrdomv>
+      </attr>
+      <attr>
+        <attrlabl>Value</attrlabl>
+        <attrdef>Land Cover Class Code Value</attrdef>
+        <attrdefs>Annual NLCD</attrdefs>
+        <attrdomv>
+          <edom>
+            <edomv>250</edomv>
+            <edomvd>NoData</edomvd>
+            <edomvds>Annual NLCD</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>11</edomv>
+            <edomvd>Open Water - All areas of open water, generally with less than 25% cover or vegetation or soil.</edomvd>
+            <edomvds>Annual NLCD</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>12</edomv>
+            <edomvd>Perennial Ice/Snow - All areas characterized by a perennial cover of ice and/or snow, generally greater than 25% of total cover.</edomvd>
+            <edomvds>Annual NLCD</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>21</edomv>
+            <edomvd>Developed, Open Space - Includes areas with a mixture of some constructed materials, but mostly vegetation in the form of lawn grasses. Impervious surfaces account for less than 20 percent of total cover. These areas most commonly include large-lot single-family housing units, parks, golf courses, and vegetation planted in developed settings for recreation, erosion control, or aesthetic purposes.</edomvd>
+            <edomvds>Annual NLCD</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>22</edomv>
+            <edomvd>Developed, Low Intensity -Includes areas with a mixture of constructed materials and vegetation. Impervious surfaces account for 20-49 percent of total cover. These areas most commonly include single-family housing units.</edomvd>
+            <edomvds>Annual NLCD</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>23</edomv>
+            <edomvd>Developed, Medium Intensity - Includes areas with a mixture of constructed materials and vegetation. Impervious surfaces account for 50-79 percent of the total cover. These areas most commonly include single-family housing units.</edomvd>
+            <edomvds>Annual NLCD</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>24</edomv>
+            <edomvd>Developed, High Intensity - Includes highly developed areas where people reside or work in high numbers. Examples include apartment complexes, row houses and commercial/industrial. Impervious surfaces account for 80 to 100 percent of the total cover.</edomvd>
+            <edomvds>Annual NLCD</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>31</edomv>
+            <edomvd>Barren Land (Rock/Sand/Clay) - Barren areas of bedrock, desert pavement, scarps, talus, slides, volcanic material, glacial debris, sand dunes, strip mines, gravel pits and other accumulations of earthen material. Generally, vegetation accounts for less than 15% of total cover.</edomvd>
+            <edomvds>Annual NLCD</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>41</edomv>
+            <edomvd>Deciduous Forest - Areas dominated by trees generally greater than 5 meters tall, and greater than 20% of total vegetation cover. More than 75 percent of the tree species shed foliage simultaneously in response to seasonal change.</edomvd>
+            <edomvds>Annual NLCD</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>42</edomv>
+            <edomvd>Evergreen Forest - Areas dominated by trees generally greater than 5 meters tall, and greater than 20% of total vegetation cover. More than 75 percent of the tree species maintain their leaves all year. Canopy is never without green foliage.</edomvd>
+            <edomvds>Annual NLCD</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>43</edomv>
+            <edomvd>Mixed Forest - Areas dominated by trees generally greater than 5 meters tall, and greater than 20% of total vegetation cover. Neither deciduous nor evergreen species are greater than 75 percent of total tree cover.</edomvd>
+            <edomvds>Annual NLCD</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>52</edomv>
+            <edomvd>Shrub/Scrub - Areas dominated by shrubs; less than 5 meters tall with shrub canopy typically greater than 20% of total vegetation. This class includes true shrubs, young trees in an early successional stage or trees stunted from environmental conditions.</edomvd>
+            <edomvds>Annual NLCD</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>71</edomv>
+            <edomvd>Grassland/Herbaceous - Areas dominated by graminoid or herbaceous vegetation, generally greater than 80% of total vegetation. These areas are not subject to intensive management such as tilling but can be utilized for grazing.</edomvd>
+            <edomvds>Annual NLCD</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>81</edomv>
+            <edomvd>Pasture/Hay - Areas of grasses, legumes, or grass-legume mixtures planted for livestock grazing or the production of seed or hay crops, typically on a perennial cycle. Pasture/hay vegetation accounts for greater than 20 percent of total vegetation.</edomvd>
+            <edomvds>Annual NLCD</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>82</edomv>
+            <edomvd>Cultivated Crops - Areas used to produce annual crops, such as corn, soybeans, vegetables, tobacco, and cotton, and also perennial woody crops such as orchards and vineyards. Crop vegetation accounts for greater than 20 percent of total vegetation. This class also includes all land being actively tilled.</edomvd>
+            <edomvds>Annual NLCD</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>90</edomv>
+            <edomvd>Woody Wetlands - Areas where forest or shrub land vegetation accounts for greater than 20 percent of vegetative cover and the soil or substrate is periodically saturated with or covered with water.</edomvd>
+            <edomvds>Annual NLCD</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>95</edomv>
+            <edomvd>Emergent Herbaceous Wetlands - Areas where perennial herbaceous vegetation accounts for greater than 80 percent of vegetative cover and the soil or substrate is periodically saturated with or covered with water.</edomvd>
+            <edomvds>Annual NLCD</edomvds>
+          </edom>
+        </attrdomv>
+      </attr>
+    </detailed>
+    <overview>
+      <eaover>Land Cover Class RGB Color Value Table. The specific RGB values for the Land Cover classes that were used for Annual NLCD Collection 1.</eaover>
+      <eadetcit>Attributes defined by USGS
+Value     Red, Green, Blue
+   250    0, 0, 0
+   11     70, 107, 159
+   12     209, 222, 248
+   21     222, 197, 197
+   22     217, 146, 130
+   23     235, 0, 0
+   24     171, 0, 0
+   31     179, 172, 159
+   41     104, 171, 95
+   42     28, 95, 44
+   43     181, 197, 143
+   52     204, 184, 121
+   71     223, 223, 194
+   81     220, 217, 57
+   82     171, 108, 40
+   90     184, 217, 235
+   95     108, 159, 184
+   
+   U.S. Geological Survey (USGS), 2024, Annual NLCD Collection 1 Science Products: U.S. Geological Survey data release (ver. 1.1, June 2025), https://doi.org/10.5066/P94UXNTS.
+   </eadetcit>
+    </overview>
+  </eainfo>
+  <distinfo>
+    <distrib>
+      <cntinfo>
+        <cntorgp>
+          <cntorg>U.S. Geological Survey</cntorg>
+          <cntper>Earth Resources Observation and Science (EROS) Center</cntper>
+        </cntorgp>
+        <cntaddr>
+          <addrtype>mailing address</addrtype>
+          <address>47914 252nd Street</address>
+          <city>Sioux Falls</city>
+          <state>SD</state>
+          <postal>57198-0001</postal>
+          <country>United States</country>
+        </cntaddr>
+        <cntvoice>800-252-4547</cntvoice>
+        <cntemail>custserv@usgs.gov</cntemail>
+      </cntinfo>
+    </distrib>
+    <distliab>Unless otherwise stated, all data, metadata and related materials are considered to satisfy the quality standards relative to the purpose for which the data were collected. Although these data and associated metadata have been reviewed for accuracy and completeness and approved for release by the U.S. Geological Survey (USGS), no warranty expressed or implied is made regarding the display or utility of the data for other purposes, nor on all computer systems, nor shall the act of distribution constitute any such warranty.</distliab>
+    <stdorder>
+      <digform>
+        <digtinfo>
+          <formname>Digital Data</formname>
+        </digtinfo>
+        <digtopt>
+          <onlinopt>
+            <computer>
+              <networka>
+                <networkr>https://doi.org/10.5066/P94UXNTS</networkr>
+              </networka>
+            </computer>
+          </onlinopt>
+        </digtopt>
+      </digform>
+      <fees>None</fees>
+    </stdorder>
+  </distinfo>
+  <metainfo>
+    <metd>20250428</metd>
+    <metc>
+      <cntinfo>
+        <cntorgp>
+          <cntorg>U.S. Geological Survey</cntorg>
+        </cntorgp>
+        <cntpos>Customer Service Representative</cntpos>
+        <cntaddr>
+          <addrtype>mailing and physical</addrtype>
+          <address>47914 252nd Street</address>
+          <city>Sioux Falls</city>
+          <state>SD</state>
+          <postal>57198-0001</postal>
+          <country>USA</country>
+        </cntaddr>
+        <cntvoice>605-594-6151</cntvoice>
+        <cntfax>605-594-6589</cntfax>
+        <cntemail>custserv@usgs.gov</cntemail>
+      </cntinfo>
+    </metc>
+    <metstdn>FGDC Content Standard for Digital Geospatial Metadata</metstdn>
+    <metstdv>FGDC-STD-001-1998</metstdv>
+    <mettc>local time</mettc>
+  </metainfo>
+</metadata>
