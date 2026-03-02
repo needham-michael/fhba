@@ -3,7 +3,10 @@ import os
 import sys
 import panel as pn
 import param
-import time
+from time import perf_counter
+
+import earthaccess
+from earthaccess.exceptions import LoginAttemptFailure
 
 from fhba.app.utils import get_instructions
 
@@ -51,13 +54,51 @@ class StageDownloadGranules(param.Parameterized):
 
         str_out = pn.pane.Str(None, width=400)
         progress_bar = pn.widgets.Tqdm()
-        terminal = pn.widgets.Terminal(height=300, width=800)
+        terminal = pn.widgets.Terminal(height=300, width=800,options={"cursorBlink": True})
+
+
+        password_box = pn.widgets.PasswordInput(name='password')
+        username_box = pn.widgets.TextInput(name='username')
+        auth_earthaccess_button = pn.widgets.Button(name="Authenticate NASA Earthdata",button_type='primary')
+        auth_loading = pn.indicators.LoadingSpinner(
+            name='Authenticating Earthaccess...',visible=False,size=20)
+
+        def auth_earthaccess(event):
+
+            # Redirect stdout to the terminal widget to show download messages
+            sys.stdout = terminal
+
+            password = password_box.value
+            username = username_box.value
+
+            auth_loading.value = True
+            auth_loading.visible = True
+
+            os.environ['EARTHDATA_USERNAME'] = username
+            os.environ['EARTHDATA_PASSWORD'] = password
+
+            try:
+                earthaccess.login(strategy='environment')
+                pn.state.notifications.success("Success!")
+            except LoginAttemptFailure:
+                pn.state.notifications.error("ERROR AUTHENTICATING")
+
+            
+
+            auth_loading.value = False
+            auth_loading.visible = False
+
+
+            # Return stdout to normal and show completion message
+            sys.stdout = sys.__stdout__
+
+        auth_earthaccess_button.on_click(auth_earthaccess)
 
         def download_granules(event):
 
             # Redirect stdout to the terminal widget to show download messages
             sys.stdout = terminal
-            
+
             df_dl = df[df['user_categorization'].isin(checkbox_group.value)]
 
             if len(df_dl) == 0:
@@ -65,12 +106,17 @@ class StageDownloadGranules(param.Parameterized):
                 return
 
             for date in progress_bar(df_dl['date'], desc="Downloading Granules"):
-                terminal.write("="*79)
+                start_time = perf_counter()
+                terminal.write("="*79 + "\n")
                 str_out.object = f"Downloading granules for date: {date}"
 
                 self.gm.prepare_data(date=date)
 
-                terminal.write(f"\nGranules for date {date} downloaded and processed.\n")
+                end_time = perf_counter()
+                duration = end_time - start_time
+                terminal.write(f"\nGranules for date {date} downloaded and processed in {duration:.6f} seconds\n")
+
+                self.registry.save_json()
 
             # Return stdout to normal and show completion message
             sys.stdout = sys.__stdout__
@@ -81,6 +127,9 @@ class StageDownloadGranules(param.Parameterized):
         return pn.Column(
                 pn.pane.Markdown("### Download Granules for Selected User Categorizations"),
                 checkbox_group,
+                username_box,
+                password_box,
+                pn.Row(auth_earthaccess_button,auth_loading),
                 download_button,
                 progress_bar,
                 str_out,

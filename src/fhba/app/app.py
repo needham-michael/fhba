@@ -3,14 +3,11 @@ import os
 from datetime import datetime
 
 import holoviews as hv
-import geoviews as gv
 import geopandas as gpd
 import numpy as np
 import pandas as pd
 import panel as pn
 import param
-import rasterio
-import rioxarray as rxr
 
 from fhba.registry import Registry
 from fhba.app.stage_download_previews import StageDownloadPreviews
@@ -34,7 +31,7 @@ class StageSetup(param.Parameterized):
         # Skip getting the satpy_area_def since no processing occurs in this portion
         # of the application. Also skip authentication with earthaccess for a similar
 
-        registry = Registry(get_satpy_area_def=False,auth_earthaccess=False).load_json()
+        registry = Registry(get_satpy_area_def=True,auth_earthaccess=False).load_json()
 
         satellite = self.satellite_full.split()[0]
 
@@ -63,7 +60,7 @@ class StageSetup(param.Parameterized):
             self.param.satellite_full,
             margin=(40, 10), width=800,styles={'background': '#f0f0f0'}
         ))
-        
+
         return pane
 
     def panel(self):

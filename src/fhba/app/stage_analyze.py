@@ -59,7 +59,7 @@ class StageAnalyze(param.Parameterized):
 
 
         # hv_rgb = self.gm.get_nir_red_hv_rgb(date=analysis_date_selector.value)
-        hv_pane = pn.pane.HoloViews(self.gm.get_county_overlay(), width=500, height=1000)
+        hv_pane = pn.pane.HoloViews(None, width=500, height=1000)
 
         loading = pn.indicators.LoadingSpinner(name="Loading Image...", width=200, height=50,visible=False,value=False)
 

@@ -179,8 +179,9 @@ class GranuleManager:
                 warnings.simplefilter("ignore")
                 band_list = self.full_band_list
 
-                if "true_color" not in band_list:
-                    band_list += ["true_color"]
+                if truecolor_file_exists:
+                    if "true_color" not in band_list:
+                        band_list += ["true_color"]
 
                 print(f"Loading bands: {band_list}")
                 scene_full = Scene(filenames=granule_files, reader=f"{self.instrument}_l1b")
@@ -342,6 +343,7 @@ class GranuleManager:
 
         if granule_search_results is None:
             print("Granules already downloaded. Skipping download step.")
+            self.download_status[date] = True
             return None
 
 
@@ -414,7 +416,7 @@ class GranuleManager:
         county_gdf = gpd.read_file(self.county_shp + ".shp")
         county_gdf = county_gdf.to_crs(self.satpy_area_def.to_cartopy_crs())
         
-        county_overlay = hv.Path(county_gdf.geometry).opts(
+        county_overlay = hv.Path([sh.boundary.xy for sh in county_gdf.geometry]).opts(
             color=color, line_width=line_width
         )
 
