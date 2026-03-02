@@ -6,6 +6,8 @@ from time import perf_counter
 import numpy as np
 import rioxarray as rxr
 
+from pyresample import image, geometry
+
 import yaml
 
 def read_config():
@@ -17,6 +19,41 @@ def read_config():
         config = {k:config[k] for k in config if not k.startswith('_')}
 
     return config
+
+def get_nlcd_area_definition(nlcd_mask):
+
+    lat_0 = nlcd_mask.spatial_ref.latitude_of_projection_origin  
+    lat_1, lat_2 = nlcd_mask.spatial_ref.standard_parallel
+    lon_0 = nlcd_mask.spatial_ref.longitude_of_central_meridian 
+    ellps = "".join(nlcd_mask.spatial_ref.geographic_crs_name.split())
+    x_0 = nlcd_mask.spatial_ref.false_easting
+    y_0 = nlcd_mask.spatial_ref.false_northing
+    a = nlcd_mask.spatial_ref.semi_major_axis
+    b = nlcd_mask.spatial_ref.semi_minor_axis
+    
+    proj_str = f"+proj=aea +{lat_1=} +{lat_2=} +{lat_0=} +{lon_0=} +{x_0=} +{y_0=} +{a=} +{b=} +units=m +no_defs"
+    
+    # gt = [float(x) for x in nlcd_mask.spatial_ref.GeoTransform.split()]
+    
+    width = len(nlcd_mask.x.data)
+    height = len(nlcd_mask.y.data)
+    
+    lower_left_x = min(nlcd_mask.x.data)
+    lower_left_y = min(nlcd_mask.y.data)
+    upper_right_x = max(nlcd_mask.x.data)
+    upper_right_y = max(nlcd_mask.y.data)
+
+    area_nlcd = geometry.AreaDefinition(
+        area_id="NLCD",
+        description="NLCD Albers Equal Area",
+        proj_id="",
+        projection=proj_str,
+        width=width,
+        height=height,
+        area_extent=(lower_left_x, lower_left_y, upper_right_x, upper_right_y)
+    )
+
+    return area_nlcd
 
 def main():
 
@@ -46,6 +83,7 @@ def main():
     y0 = config['spatial']['min_lat']
     y1 = config['spatial']['max_lat']
 
+    output_filename = importlib.resources.files(nlcd_filedir.replace("/",".")) / f"NLCD_LandMask_{spatial_name}.tif"
 
     print(f"Opening NLCD file: {nlcd_input_file}")
     nlcd = rxr.open_rasterio(nlcd_input_file).isel(band=0)
@@ -57,8 +95,6 @@ def main():
     nlcd_land_mask = np.logical_or(
         nlcd_clipped == 71, nlcd_clipped == 81
     ).fillna(0)
-
-    output_filename = importlib.resources.files("fhba.app.appdata.nlcd") / f"NLCD_LandMask_{spatial_name}.tif"
 
     print("Saving land mask to file ...")
     nlcd_land_mask.rio.to_raster(output_filename,compress='LZMA',dtype="int16")

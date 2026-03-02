@@ -97,7 +97,7 @@ class GranuleManager:
         cldmask_file = self.processed_cloud_masks_by_date[date]
 
         if landcover_mask_file is None:
-            landcover_mask_file = "./tmp_lcmask.tif"
+            landcover_mask_file = importlib.resources.files("fhba.app.appdata.annual_nlcd") / f"NLCD_LandMask_{self.spatial_name}.tif"
 
         if method == 'eucl':
             burnmask = classify_pixels_eucl(
@@ -249,9 +249,63 @@ class GranuleManager:
             self.processed_cloud_masks_by_date[date] = cloud_mask_nc_file
             self.update_processing_status(date,True)
 
-            
-
         return 
+    
+    def resample_landmask(self,landcover_mask_file_fullres,landcover_mask_file):
+        import rasterio
+        import rioxarray as rxr
+        from pyresample import image, geometry
+        from pyresample.bilinear import XArrayBilinearResampler
+        from rasterio.transform import Affine
+        
+        from fhba.process_landcover_mask import get_nlcd_area_definition
+
+        nlcd_mask = rxr.open_rasterio(landcover_mask_file_fullres)
+
+        area_nlcd = get_nlcd_area_definition(nlcd_mask)
+
+        resampler_bilinear = XArrayBilinearResampler(
+            source_geo_def=area_nlcd,
+            target_geo_def=self.satpy_area_def,
+            radius_of_influence=90
+        )
+
+        nlcd_mask_resampled_bi = resampler_bilinear.resample(nlcd_mask.isel(band=0))
+
+        # Make the mask more 'conservative' where resampled pixels greater than zero
+        # but less than one are mapped to zero
+        nlcd_mask_resampled = np.floor(nlcd_mask_resampled_bi)
+        # nlcd_mask_resampled = (nlcd_mask_resampled_bi / nlcd_mask_resampled_bi).fillna(0)
+
+        extent = self.satpy_area_def.area_extent
+
+        dx, dy = self.satpy_area_def.resolution
+
+        # x and y coords of upper left corner
+        x0 = extent[0]
+        y0 = extent[3]
+
+        geotransform = [dx,0.0,x0,0.0,-dy,y0]
+        geotransform = [float(x) for x in geotransform]
+
+        geotransform = Affine(*geotransform)
+
+        with rasterio.open(
+            landcover_mask_file,
+            'w',
+            driver='GTiff',
+            height=1000,
+            width=500,
+            count=1,
+            dtype='int8',
+            crs=self.satpy_area_def.crs.to_proj4(),
+            transform=geotransform
+        ) as dst:
+
+            dst.write(nlcd_mask_resampled.values,1)
+
+        return
+
 
     def update_download_status(self,date,status):
         """Update the download status for a given date."""
@@ -861,7 +915,7 @@ class Registry:
         self.satpy_area_def = satpy_area_def
 
     
-    def read_config(self):
+    def read_config(self,return_raw_config=False):
         """Reads the asset registry configuration from a file."""
 
         config_file   = importlib.resources.files('fhba') / 'config.yaml'
@@ -878,6 +932,9 @@ class Registry:
         except yaml.YAMLError as e:
             msg = f"Error parsing the configuration file {config_file}. Please ensure that 'config.yaml' is properly formatted and contains valid YAML syntax."
             raise yaml.YAMLError(msg) from e
+        
+        if return_raw_config:
+            return config
         
         # Spatial Config
         self.min_lat      = config['spatial'].get('min_lat', None)
@@ -914,6 +971,7 @@ class Registry:
         self.modis_nir_red_band_list = config['modis'].get('nir_red_band_list', [])
 
         self.supported_instruments = list(self.viirs_short_names.keys()) + list(self.modis_short_names.keys())
+
 
     def review_file_status(self):
         """Review the status of all files in the registry."""

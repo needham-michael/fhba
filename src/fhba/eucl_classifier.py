@@ -42,6 +42,7 @@ def get_cloudmask(cldmask_nc,threshold=0.80):
         # cloud shadow and other cloud edge effects
         cldmask = xr.DataArray(
             data=1-binary_dilation(binary_dilation(1-cldmask)),
+            # data=cldmask,
             coords=cldmask.coords,
             dims=cldmask.dims
         )
@@ -74,7 +75,21 @@ def classify_pixels_eucl(
             else:
                 cldmask = xr.ones_like(lcmask)
 
-            daily_mask = lcmask * cldmask
+            
+            try:
+                daily_mask = (lcmask * cldmask).band_data
+                daily_mask  = xr.DataArray(
+                    # data=1-binary_dilation(1-daily_mask),
+                    data=daily_mask,
+                    coords=cldmask.coords,
+                    dims=cldmask.dims
+                )
+
+            except ValueError:
+                print(f"{lcmask =}")
+                print("="*79)
+                print(f"{cldmask =}")
+                raise ValueError
 
             if band_list is None:
                 band_list = [var for var in ds_processed.data_vars if var.startswith(('I','M'))]
@@ -104,7 +119,7 @@ def classify_pixels_eucl(
 
             is_burned = xr.DataArray(Xfull['isBurned'],coords={'z':pixel_vector_1d.z}).unstack()
 
-            burnmask = (is_burned * daily_mask.band_data).T.to_dataset(name='burnmask')
+            burnmask = (is_burned * daily_mask).T.to_dataset(name='burnmask')
             
 
             # burnmask = (daily_mask.band_data * is_burned.T).to_dataset(name='burnmask')

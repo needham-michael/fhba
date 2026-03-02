@@ -1,4 +1,5 @@
 import os
+import importlib
 
 import geopandas as gpd
 import pandas as pd
@@ -121,6 +122,13 @@ class StageClassify(param.Parameterized):
 
         load_img_button.on_click(update_hv_rgb_with_points)
 
+        alert_pane = pn.pane.Alert(
+            f"Performing one-time resampling of NLCD from full resolution to '{self.gm.spatial_name}' domain. This may take a few minutes...",
+            visible=False,
+            alert_type='warning',
+            width=400
+            )
+
         def categorize_pixels(event):
             date = analysis_date_selector.value
 
@@ -128,18 +136,57 @@ class StageClassify(param.Parameterized):
             loading.visible = True
             loading.name='Classifying Pixels...'
 
-            pn.state.notifications.info(f"Classifying pixels for analysis date: {date}")
+            pn.state.notifications.info(f"Classifying pixels for analysis date: {date}",duration=6000)
+
+            landcover_mask_file_fullres = importlib.resources.files("fhba.app.appdata.annual_nlcd") / f"NLCD_LandMask_{self.gm.spatial_name}.tif"
+            landcover_mask_file = importlib.resources.files("fhba.app.appdata.annual_nlcd") / f"NLCD_LandMask_{self.gm.spatial_name}_{self.gm.instrument}.tif"
+
+            lcmask_exists = os.path.exists(landcover_mask_file)
+            lcmask_fullres_exists = os.path.exists(landcover_mask_file_fullres)
+
+            
+    
+            if not lcmask_exists:
+                if not lcmask_fullres_exists:
+                    pn.state.notifications.error("Landcover Mask File Not Found",duration=6000)
+                    loading.value = False
+                    loading.visible = False
+                    return
+                
+                # pn.state.notifications.warning(f"Performing one-time resampling of NLCD from full resolution to '{self.gm.spatial_name}' domain.")
+
+                loading.name='Resampling Landcover Mask (may take some time)...'
+                alert_pane.visible = True
+
+                self.gm.resample_landmask(
+                    landcover_mask_file_fullres=landcover_mask_file_fullres,
+                    landcover_mask_file=landcover_mask_file
+                )
+
+                loading.name='Classifying Pixels...'
+                alert_pane.visible = False
 
             burnmask = self.gm.classify_pixels(
                 method='eucl',
                 date=date,
-                landcover_mask_file=r"C:\Users\MNEEDHAM\OneDrive - Environmental Protection Agency (EPA)\Documents\_active_projects\fhba\dev\tmp_lcmask.tif"
+                landcover_mask_file=landcover_mask_file
                 )
             
             loading.name='Saving Temporary Results...'
             burnmask = burnmask.rio.write_crs(
                 rasterio.crs.CRS.from_user_input(self.gm.satpy_area_def.proj_str)
             )
+
+            if getattr(self.gm,"burnmask_dir",None) is None:
+                config = self.registry.read_config(return_raw_config=True)
+
+                burnmask_dir = config['paths']['burnmask_dir']
+                burnmask_dir = burnmask_dir.replace("./appdata","fhba.app.appdata").split("/")[0]
+                burnmask_dir = importlib.resources.files(burnmask_dir) / "burnmask"
+                burnmask_dir = burnmask_dir / self.gm.start_date.split("-")[0] / self.gm.satellite_name
+                burnmask_dir = str(burnmask_dir)
+                self.gm.burnmask_dir = burnmask_dir
+                self.registry.save_json()
 
             os.makedirs(self.gm.burnmask_dir,exist_ok=True)
 
@@ -210,7 +257,7 @@ class StageClassify(param.Parameterized):
             pn.Column(
                 pn.pane.Markdown("## Identify Burned and Unburned Pixels"),
                 export_burnmask_button,
-                pn.Column(loading,hv_pane)),
+                pn.Column(alert_pane,loading,hv_pane)),
                 margin=(40, 10), styles={'background': '#f0f0f0'}
             )
         

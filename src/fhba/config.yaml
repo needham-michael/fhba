@@ -21,7 +21,7 @@ paths: # relative to /fhba/app/
   county_shp: "./appdata/_static/FH_Counties_Updated.shp/FH_Counties_Updated"
 
 nlcd:
-  nlcd_filedir: "fhba/app/appdata/nlcd"
+  nlcd_filedir: "fhba/app/appdata/annual_nlcd"
   nlcd_filename: "Annual_NLCD_LndCov_2024_CU_C1V1.tif"
 
 viirs:
