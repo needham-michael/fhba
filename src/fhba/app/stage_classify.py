@@ -8,7 +8,7 @@ import param
 import rasterio
 import rioxarray as rxr
 
-from fhba.app.utils import get_instructions, initialize_userpoints, pts2df
+from fhba.app.utils import get_instructions, initialize_userpoints, initialize_userpolys, polys2gdf
 
 class StageClassify(param.Parameterized):
 
@@ -69,6 +69,7 @@ class StageClassify(param.Parameterized):
 
         loading = pn.indicators.LoadingSpinner(name="Loading Image...", width=200, height=50,visible=False,value=False)
 
+        polys_areamask, poly_stream = initialize_userpolys()
 
         def update_hv_rgb_with_points(event):
             date = analysis_date_selector.value
@@ -101,7 +102,9 @@ class StageClassify(param.Parameterized):
             loading.name='Loading Image...'
 
             try:
+                polys_areamask.data = None
                 rgb = self.gm.get_nir_red_hv_rgb(date=date,in_app=True,no_title=True)
+                
             except Exception as e:
                 pn.state.notifications.error(f"Error loading image for date {date}: {str(e)}",duration=6000)
                 loading.value = False
@@ -112,7 +115,8 @@ class StageClassify(param.Parameterized):
                 return
             
             if rgb is not None:
-                hv_pane.object = rgb * points_burned * points_unburned
+                hv_pane.object = rgb * points_burned * points_unburned * polys_areamask
+
             loading.value = False
             loading.visible = False
 
@@ -144,8 +148,6 @@ class StageClassify(param.Parameterized):
             lcmask_exists = os.path.exists(landcover_mask_file)
             lcmask_fullres_exists = os.path.exists(landcover_mask_file_fullres)
 
-            
-    
             if not lcmask_exists:
                 if not lcmask_fullres_exists:
                     pn.state.notifications.error("Landcover Mask File Not Found",duration=6000)
@@ -202,7 +204,7 @@ class StageClassify(param.Parameterized):
 
             burnmask_qm = self.gm.get_burnmask_hv_rgb(burnmask_array=burnmask.burnmask)
 
-            hv_pane.object = hv_pane.object + burnmask_qm
+            hv_pane.object = hv_pane.object + (burnmask_qm * polys_areamask)
 
             loading.value = False
             loading.visible = False
@@ -230,8 +232,22 @@ class StageClassify(param.Parameterized):
             counties = gpd.read_file(self.gm.county_shp + ".shp")
             counties = counties.to_crs(self.gm.satpy_area_def.proj_str)
 
+            polys_areamask_gdf = polys2gdf(poly_stream)
+
             with rxr.open_rasterio(burnmask_tmp_file) as ds:
                 ds = ds.rio.clip(geometries=counties.geometry).fillna(0)
+
+                if not polys_areamask_gdf.empty:
+
+                    print("="*79)
+                    print("Excluding pixels within user polygons:")
+                    print(polys_areamask_gdf)
+                    print("="*79)
+
+                    for geom in polys_areamask_gdf.geometry:
+                        print(geom)
+                        ds = ds.rio.clip(geometries=[geom],invert=True,drop=False)
+
                 ds.rio.to_raster(burnmask_final_file)
 
                 if getattr(self.gm, 'burnmask_by_date', None) is None:

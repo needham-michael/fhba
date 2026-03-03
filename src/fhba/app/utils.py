@@ -1,7 +1,9 @@
 import importlib
+import geopandas as gpd
 import holoviews as hv
 import pandas as pd
 import panel as pn
+import shapely
 
 def get_instructions(filename,instr_width):
 
@@ -29,6 +31,13 @@ def initialize_userpoints(color,marker='x',point_locations=None,label=None):
 
         return points
 
+def initialize_userpolys(color='red',alpha=0.5):
+
+    polys = hv.Polygons(data=None,label='label').opts(color=color,alpha=alpha,active_tools=['poly_draw'])
+    poly_stream = hv.streams.PolyDraw(source=polys)
+
+    return polys, poly_stream
+
 def pts2df(burned_pts,unburned_pts):
 
     burned_df = pd.DataFrame(burned_pts)
@@ -39,3 +48,12 @@ def pts2df(burned_pts,unburned_pts):
     export_df = pd.concat([burned_df,unburned_df])
 
     return export_df
+
+def polys2gdf(poly_stream,crs=None):
+
+    geoms = []
+
+    for xcoords, ycoords in zip(poly_stream.data['xs'],poly_stream.data['ys']):
+        geoms.append(shapely.Polygon([[x,y] for x,y in zip(xcoords,ycoords)]))
+
+    return gpd.GeoDataFrame(geometry=geoms,crs=crs)
