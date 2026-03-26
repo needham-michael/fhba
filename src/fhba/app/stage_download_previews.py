@@ -4,6 +4,8 @@ import pandas as pd
 import panel as pn
 import param
 
+from fhba.app.utils import get_instructions
+
 pn.extension()
 
 class StageDownloadPreviews(param.Parameterized):
@@ -59,10 +61,14 @@ class StageDownloadPreviews(param.Parameterized):
     @param.depends('year','satellite','registry', 'gm')
     def view(self):
 
-        return pn.Column(
-            pn.pane.Markdown("## Download Preview Images"),
+        instr = get_instructions("02_instr_download_preview.md", instr_width=250)
+
+        return pn.Row(
+            instr,
+            pn.Column(
             self.download_pane,
-            margin=(40, 10), styles={'background': '#f0f0f0'}
+            margin=(10, 10), styles={'background': '#f0f0f0'}, sizing_mode='stretch_both'
+            )
         )
     
     def panel(self):

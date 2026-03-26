@@ -23,7 +23,10 @@ pn.extension(notifications=True)
 class StageSetup(param.Parameterized):
 
     year = param.Selector(default=datetime.now().year, objects=list(range(2017, datetime.now().year + 1)))
-    satellite_full = param.Selector(default='Suomi-NPP VIIRS', objects=['Suomi-NPP VIIRS', 'NOAA-20 VIIRS', 'NOAA-21 VIIRS', 'AQUA MODIS', 'TERRA MODIS'])
+    satellite_full = param.Selector(
+        default='Suomi-NPP VIIRS', 
+        objects=['Suomi-NPP VIIRS', 'NOAA-20 VIIRS', 'NOAA-21 VIIRS'],
+        )
 
     @param.output(('satellite',param.String),('registry',param.Parameter),('gm',param.Parameter))
     def output(self):
@@ -50,16 +53,14 @@ class StageSetup(param.Parameterized):
     @param.depends('year','satellite_full')
     def view(self):
 
-        instr = get_instructions("stage1.md", instr_width=250)
+        instr = get_instructions("01_instr_select_sat.md", instr_width=800)
 
-        pane = pn.Row(
+        pane = pn.Column(
             instr,
-            pn.Column(
-            pn.pane.Markdown("## Select Analysis Year and Satellite Instrument"),
             self.param.year,
             self.param.satellite_full,
-            margin=(40, 10), width=800,styles={'background': '#f0f0f0'}
-        ))
+            margin=(40, 40), sizing_mode='stretch_both',styles={'background': '#f0f0f0'}
+        )
 
         return pane
 

@@ -26,7 +26,7 @@ class StageDownloadGranules(param.Parameterized):
         df = df.rename(columns={'index':'date'})
         df = df[['date','user_categorization','download_status']]
 
-        table = pn.widgets.Tabulator(df, height=600, width=500,show_index=False)
+        table = pn.widgets.Tabulator(df, height=600, show_index=False)
 
         by_cat = df.groupby('user_categorization').count().iloc[:,0]
 
@@ -83,11 +83,8 @@ class StageDownloadGranules(param.Parameterized):
             except LoginAttemptFailure:
                 pn.state.notifications.error("ERROR AUTHENTICATING")
 
-            
-
             auth_loading.value = False
             auth_loading.visible = False
-
 
             # Return stdout to normal and show completion message
             sys.stdout = sys.__stdout__
@@ -135,27 +132,31 @@ class StageDownloadGranules(param.Parameterized):
                 str_out,
                 pn.pane.Markdown("### Download Log"),
                 terminal,
-                margin=(40, 10), width=800,styles={'background': '#f0f0f0'}
+                margin=(10, 10), sizing_mode='stretch_both',styles={'background': '#f0f0f0'}
             )
 
     
     @param.depends('year','satellite','registry', 'gm')
     def view(self):
 
-        instr = get_instructions("stage1.md",instr_width=250)
+        instr = get_instructions("04_instr_download_granules.md",instr_width=250)
         table_pane = self.table_pane()
 
         download_pane = self.download_pane()
 
         pane = pn.Row(
-            instr,
+            pn.Column(
+                instr,
+                pn.pane.Alert("Please be patient, downloading and processing satellite granules can take several minutes complete for each date",sizing_mode='stretch_width',alert_type='warning'),
+                width=250, margin=(40, 10),
+            ),
             pn.Column(
                 table_pane,
-                margin=(40, 10), width=500,styles={'background': '#f0f0f0'}
+                margin=(10, 10),sizing_mode='stretch_both',styles={'background': '#f0f0f0'}
             ),
             pn.Column(
                 download_pane,
-                margin=(40, 10), width=800,styles={'background': '#f0f0f0'}
+                margin=(10, 10),width=820,styles={'background': '#f0f0f0'}
             )
         )
 

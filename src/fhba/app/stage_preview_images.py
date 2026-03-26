@@ -72,23 +72,29 @@ class StagePreviewImages(param.Parameterized):
 
         save_categorization_button.on_click(save_categorization)        
 
-        return pn.Column(pn.pane.Markdown("## True Color Image Previews"),
+        return pn.Column(
                 preview_image_player,
                 current_categorization_selector,
                 save_categorization_button,
-                img_pane,)
+                img_pane,
+                sizing_mode='stretch_both'
+                )
 
 
     @param.depends('year','satellite','registry')
     def view(self):
-        instr = get_instructions("stage2.md",instr_width=250)
+        instr = get_instructions("03_instr_categorize_previews.md",instr_width=250)
         img_pane = self.img_pane()
 
         pane = pn.Row(
-            instr,
+            pn.Column(
+                instr,
+                pn.pane.Alert("Note that these categorizations only impact which files the user descides to download in the next step.",sizing_mode='stretch_width'),
+                width=250, margin=(40, 10),
+            ),
             pn.Column(
                 img_pane,
-                margin=(40, 10), width=800,styles={'background': '#f0f0f0'}
+                margin=(10, 10), sizing_mode='stretch_both', styles={'background': '#f0f0f0'}
             )
         )
         

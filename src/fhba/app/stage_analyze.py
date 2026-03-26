@@ -21,7 +21,7 @@ class StageAnalyze(param.Parameterized):
         gm_df = gm_df[gm_df['download_status'] == True]
 
         table = pn.pane.DataFrame(
-            gm_df[['date','user_categorization','analysis_status']], index=False, width=600
+            gm_df[['date','user_categorization','analysis_status']], index=False, sizing_mode='stretch_both'
         )
 
         if return_df:
@@ -31,7 +31,7 @@ class StageAnalyze(param.Parameterized):
 
     @param.depends('year','satellite','registry', 'gm')
     def view(self):
-        instr = get_instructions("stage3.md",instr_width=250)
+        instr = get_instructions("05_instr_select_pixels.md",instr_width=250)
 
         table, gm_df = self.table_pane(return_df=True)
 
@@ -46,7 +46,7 @@ class StageAnalyze(param.Parameterized):
         )
 
         load_pts_button = pn.widgets.Button(
-            name="Import Previous User Points", button_type="primary", width=150
+            name="Import Previous User Points", button_type="primary", width=250
         )
 
         # NOTE: The image loading and analysis functionality is not yet implemented. The button click will simply trigger a notification for now.
@@ -61,7 +61,7 @@ class StageAnalyze(param.Parameterized):
         # hv_rgb = self.gm.get_nir_red_hv_rgb(date=analysis_date_selector.value)
         hv_pane = pn.pane.HoloViews(None, width=500, height=1000)
 
-        loading = pn.indicators.LoadingSpinner(name="Loading Image...", width=200, height=50,visible=False,value=False)
+        loading = pn.indicators.LoadingSpinner(name="Loading Image...", width=200, height=25,visible=False,value=False)
 
         points_burned, points_burned_stream = initialize_userpoints(color='red',label='Burned')
         points_unburned, points_unburned_stream = initialize_userpoints(color='blue',marker='+',label='Unburned')
@@ -91,7 +91,10 @@ class StageAnalyze(param.Parameterized):
                 return
             
             if rgb is not None:
-                hv_pane.object = rgb * points_burned * points_unburned 
+                hv_pane.object = rgb * points_burned * points_unburned
+
+                # Rename the two point draw tools
+                 
             loading.value = False
             loading.visible = False
         
@@ -152,7 +155,7 @@ class StageAnalyze(param.Parameterized):
         load_pts_button.on_click(load_user_points)
 
         export_button = pn.widgets.Button(
-            name='Export Points', button_type='primary')
+            name='Export Points', button_type='danger')
 
         export_options = pn.widgets.CheckBoxGroup(
             name='Export Options', 
@@ -225,14 +228,23 @@ class StageAnalyze(param.Parameterized):
             instr,
             pn.Column(
                 pn.pane.Markdown("## Select Analysis Date from Table of Downloaded Granules"),
-                pn.Row(analysis_date_selector, load_img_button, load_pts_button),
+                pn.Row(
+                    analysis_date_selector, 
+                    load_img_button,
+                    loading
+                ),
                 pn.layout.Divider(),
                 table,
+                width=600,
+                sizing_mode='stretch_height'
             ),
             pn.Column(
-                pn.pane.Markdown("## Identify Burned and Unburned Pixels"),
-                pn.Column(loading,pn.Row(export_button,export_options),hv_pane)),
-            margin=(40, 10), styles={'background': '#f0f0f0'})
+                pn.pane.Markdown("## Select Pixels"),
+                pn.Row(load_pts_button,export_button,export_options),
+                hv_pane,
+            margin=(40, 40), styles={'background': '#f0f0f0'},
+            sizing_mode='stretch_both'
+            ))
 
     def panel(self):
         return pn.Row(self.view,)
