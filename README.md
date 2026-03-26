@@ -4,6 +4,8 @@
 
 Placeholder
 
+![](./_static/burnmaskexample.png)
+
 #### Features
 
 Placeholder
