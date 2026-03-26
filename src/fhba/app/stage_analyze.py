@@ -225,7 +225,14 @@ class StageAnalyze(param.Parameterized):
 
             
         return pn.Row(
-            instr,
+            pn.Column(
+                instr,
+                pn.pane.Alert(
+                    "To improve categorization performance, recommend selecting at least 50-100 burned and unburned points each from a variety of locations across the image.",
+                    sizing_mode='stretch_width',alert_type='warning',width=250,),
+                sizing_mode='stretch_height',
+                width=250,
+            ),
             pn.Column(
                 pn.pane.Markdown("## Select Analysis Date from Table of Downloaded Granules"),
                 pn.Row(

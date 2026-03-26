@@ -41,7 +41,7 @@ class StageClassify(param.Parameterized):
 
     @param.depends('year','satellite','registry','gm')
     def view(self):
-        instr = get_instructions("stage4.md",instr_width=250)
+        instr = get_instructions("06_eucl_categ.md",instr_width=250)
 
         table, gm_df = self.table_pane(return_df=True)
 
@@ -263,7 +263,14 @@ class StageClassify(param.Parameterized):
         export_burnmask_button.on_click(export_burnmask)
 
         pane = pn.Row(
-            instr,
+            pn.Column(
+                instr,
+                pn.pane.Alert(
+                    "Tip: If a large number of spurious small burned pixels are generated, try increasing the number of unburned points selected in the vacinity of the spurious features.",
+                    sizing_mode='stretch_width',alert_type='warning',width=250,),
+                sizing_mode='stretch_height',
+                width=250,
+            ),
             pn.Column(
                 pn.pane.Markdown("## Categorize Granules Based on User-Identified Points"),
                 pn.Row(analysis_date_selector, load_img_button,categorize_pixel_button),
