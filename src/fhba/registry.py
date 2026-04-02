@@ -222,8 +222,11 @@ class GranuleManager:
         self.nbr_bands = nbr_bands  # [nir_band, swir_band] or None
         self.ndvi_bands = ndvi_bands  # [nir_band, red_band] or None
 
-        if self.instrument not in ['viirs', 'modis', 'landsat', None]:
-            raise ValueError(f"Instrument {instrument} not recognized. Valid options are 'viirs', 'modis', or 'landsat'.")
+        if self.instrument not in ['viirs', None]:
+            if self.instrument in ['landsat', 'modis']:
+                raise NotImplementedError(f"Instrument '{instrument}' is not yet supported. Only VIIRS imagery is currently implemented.")
+            else:
+                raise ValueError(f"Instrument {instrument} not recognized. Valid options are 'viirs'.")
 
         # Define dictionaries to maintain status of satellite granules by date at
         # various workflow stages.
