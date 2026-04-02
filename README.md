@@ -8,7 +8,10 @@ Placeholder
 
 #### Features
 
-Placeholder
+- Download and reproject satellite imagery to user-specified domain
+    - Currently VIIRS is supported, MODIS intended to be supported in the future
+- Allow user to point-and-select burned and unburned pixels
+- Classification using euclidean distance, random forest, and SVM algorithms
 
 
 <hr>
@@ -21,14 +24,20 @@ Launch the server with
 
 ```shell
 # include the --show flag to automatically open in the default browser
-panel serve .\src\fhba\app\app.py --show
+uv run panel serve .\src\fhba\app\app.py --show
+
+# or, for development purposes, add --autoreload which will automatically
+# reload the server if a source file is changed
+uv run panel serve .\src\fhba\app\app.py --show --autoreload
 ```
 
 <hr>
 
 ## Change Log
 
-Placeholder
+| Date | Change | Comment |
+| ---- | ------ | ------- |
+| 4/2/2026 | Added active fire detections sourced from NOAA's __[HMS](https://www.ospo.noaa.gov/products/land/hms.html)__ | Points color coded by date offset; only show 1-, 2-, and 3-days before satellite imagery (do not show detections from current date) |
 
 <hr>
 
