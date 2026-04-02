@@ -387,12 +387,15 @@ class StageClassify(param.Parameterized):
             # ── Per-county area statistics ──────────────────────────────────────
             try:
                 gdf_stats = self.gm.compute_burn_area_by_county(burnmask_final_file)
-                stats_df = gdf_stats[
-                    ['county_name', 'burned_area_km2', 'burned_area_acres']
-                ].sort_values('burned_area_acres', ascending=False)
+                # Include both UTM and EPSG:5070 columns for comparison
+                columns = ['county_name', 'burned_area_km2_utm', 'burned_area_acres_utm', 'burned_area_km2_5070', 'burned_area_acres_5070']
+                stats_df = gdf_stats[gdf_stats['county_name'] != 'Total'][columns].sort_values('burned_area_acres_utm', ascending=False)
+                # Add the Total row back for display
+                total_row = gdf_stats[gdf_stats['county_name'] == 'Total'][columns]
+                stats_df = pd.concat([stats_df, total_row], ignore_index=True)
                 stats_table.object = stats_df
-                total_acres = stats_df['burned_area_acres'].sum()
-                total_km2   = stats_df['burned_area_km2'].sum()
+                total_acres = gdf_stats.loc[gdf_stats['county_name'] == 'Total', 'burned_area_acres_utm'].iloc[0]
+                total_km2   = gdf_stats.loc[gdf_stats['county_name'] == 'Total', 'burned_area_km2_utm'].iloc[0]
                 stats_md.object = (
                     f"### Burned Area for {date}\n"
                     f"**Total: {total_km2:.1f} km²  ({total_acres:,.0f} acres)**"

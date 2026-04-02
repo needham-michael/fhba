@@ -463,6 +463,10 @@ class GranuleManager:
 
     def compute_burn_area_by_county(self, burnmask_file):
         """Compute burned area statistics per county from a burn mask GeoTIFF.
+        
+        Calculates areas using both UTM Zone 14N (EPSG:32614) and Albers Equal-Area (EPSG:5070)
+        projections to compare differences. Includes a total row summing all counties.
+        
         Parameters
         ----------
         burnmask_file : str
@@ -471,35 +475,85 @@ class GranuleManager:
         -------
         gdf : geopandas.GeoDataFrame
             County-level statistics with columns:
-            county_name, burned_area_km2, burned_area_acres.
+            county_name, burned_area_km2_utm, burned_area_acres_utm,
+            burned_area_km2_5070, burned_area_acres_5070.
+            Includes a 'Total' row at the end.
         """
         import rioxarray as rxr
         counties = gpd.read_file(self.county_shp + ".shp")
         with rxr.open_rasterio(burnmask_file) as ds:
-            # Reproject to a metric CRS for accurate area calculation
-            ds_metric = ds.rio.reproject("EPSG:32614") # UTM Zone 14N (Flint Hills)
-            res_x, res_y = ds_metric.rio.resolution()
-            pixel_area_m2 = abs(res_x * res_y)
-            pixel_area_km2 = pixel_area_m2 / 1_000_000
-            pixel_area_acres = pixel_area_m2 / 4046.856
-
-            counties_metric = counties.to_crs("EPSG:32614")
+            # Reproject to UTM Zone 14N for area calculation
+            ds_utm = ds.rio.reproject("EPSG:32614")
+            res_x_utm, res_y_utm = ds_utm.rio.resolution()
+            pixel_area_m2_utm = abs(res_x_utm * res_y_utm)
+            pixel_area_km2_utm = pixel_area_m2_utm / 1_000_000
+            pixel_area_acres_utm = pixel_area_m2_utm / 4046.856
+            counties_utm = counties.to_crs("EPSG:32614")
+            
+            # Reproject to Albers Equal-Area (EPSG:5070) for comparison
+            ds_5070 = ds.rio.reproject("EPSG:5070")
+            res_x_5070, res_y_5070 = ds_5070.rio.resolution()
+            pixel_area_m2_5070 = abs(res_x_5070 * res_y_5070)
+            pixel_area_km2_5070 = pixel_area_m2_5070 / 1_000_000
+            pixel_area_acres_5070 = pixel_area_m2_5070 / 4046.856
+            counties_5070 = counties.to_crs("EPSG:5070")
 
             records = []
-            for _, county in counties_metric.iterrows():
+            total_km2_utm = 0.0
+            total_acres_utm = 0.0
+            total_km2_5070 = 0.0
+            total_acres_5070 = 0.0
+            
+            name_col = next((c for c in counties.columns if 'name' in c.lower()), counties.columns[0])
+            
+            for idx in range(len(counties)):
+                county_utm = counties_utm.iloc[idx]
+                county_5070 = counties_5070.iloc[idx]
+                county_name = counties.iloc[idx][name_col]
+                
+                # Calculate for UTM
                 try:
-                    clipped = ds_metric.rio.clip([county.geometry], drop=True, all_touched=False)
-                    n_burned = int((clipped == 1).sum())
+                    clipped_utm = ds_utm.rio.clip([county_utm.geometry], drop=True, all_touched=False)
+                    n_burned_utm = int((clipped_utm == 1).sum())
                 except Exception:
-                    n_burned = 0
-
-                name_col = next((c for c in counties.columns if 'name' in c.lower()), counties.columns[0])
+                    n_burned_utm = 0
+                km2_utm = round(n_burned_utm * pixel_area_km2_utm, 4)
+                acres_utm = round(n_burned_utm * pixel_area_acres_utm, 1)
+                
+                # Calculate for EPSG:5070
+                try:
+                    clipped_5070 = ds_5070.rio.clip([county_5070.geometry], drop=True, all_touched=False)
+                    n_burned_5070 = int((clipped_5070 == 1).sum())
+                except Exception:
+                    n_burned_5070 = 0
+                km2_5070 = round(n_burned_5070 * pixel_area_km2_5070, 4)
+                acres_5070 = round(n_burned_5070 * pixel_area_acres_5070, 1)
+                
                 records.append({
-                    'county_name': county[name_col],
-                    'burned_area_km2': round(n_burned * pixel_area_km2, 4),
-                    'burned_area_acres': round(n_burned * pixel_area_acres, 1),
+                    'county_name': county_name,
+                    'burned_area_km2_utm': km2_utm,
+                    'burned_area_acres_utm': acres_utm,
+                    'burned_area_km2_5070': km2_5070,
+                    'burned_area_acres_5070': acres_5070,
                 })
-        gdf = gpd.GeoDataFrame(records, geometry=counties['geometry'].values, crs=counties.crs)
+                
+                total_km2_utm += km2_utm
+                total_acres_utm += acres_utm
+                total_km2_5070 += km2_5070
+                total_acres_5070 += acres_5070
+            
+            # Add total row
+            records.append({
+                'county_name': 'Total',
+                'burned_area_km2_utm': round(total_km2_utm, 4),
+                'burned_area_acres_utm': round(total_acres_utm, 1),
+                'burned_area_km2_5070': round(total_km2_5070, 4),
+                'burned_area_acres_5070': round(total_acres_5070, 1),
+            })
+        
+        # Create GeoDataFrame with geometries for counties and None for total
+        geometries = list(counties['geometry'].values) + [None]
+        gdf = gpd.GeoDataFrame(records, geometry=geometries, crs=counties.crs)
         return gdf
 
     def get_hms_active_fire_overlay(self, date, lookback_days=3, buffer_days=0):

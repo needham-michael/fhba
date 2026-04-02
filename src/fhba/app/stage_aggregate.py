@@ -110,8 +110,13 @@ class StageAggregate(param.Parameterized):
             try:
                 gdf = self.gm.compute_burn_area_by_county(_state['seasonal_file'])
 
-                stats_df = gdf[['county_name', 'burned_area_km2', 'burned_area_acres']].copy()
-                stats_df = stats_df.sort_values('burned_area_acres', ascending=False)
+                # Include both UTM and EPSG:5070 columns for comparison
+                columns = ['county_name', 'burned_area_km2_utm', 'burned_area_acres_utm', 'burned_area_km2_5070', 'burned_area_acres_5070']
+                stats_df = gdf[gdf['county_name'] != 'Total'][columns].copy()
+                stats_df = stats_df.sort_values('burned_area_acres_utm', ascending=False)
+                # Add the Total row back for display
+                total_row = gdf[gdf['county_name'] == 'Total'][columns]
+                stats_df = pd.concat([stats_df, total_row], ignore_index=True)
                 stats_table.object = stats_df
 
                 # Write CSV to a temp location for download
@@ -127,7 +132,7 @@ class StageAggregate(param.Parameterized):
                 download_stats_button.filename = os.path.basename(csv_path)
                 download_stats_button.visible = True
 
-                total_km2 = stats_df['burned_area_km2'].sum()
+                total_km2 = gdf.loc[gdf['county_name'] == 'Total', 'burned_area_km2_utm'].iloc[0]
                 total_acres = stats_df['burned_area_acres'].sum()
                 result_md.object += (
                     f"\n\n**Total burned area:** {total_km2:.1f} km²  "
