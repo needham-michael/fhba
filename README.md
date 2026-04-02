@@ -4,7 +4,7 @@
 
 Placeholder
 
-<img src="./_static/burnmaskexample.jpg" height=800>
+<img src="./_static/burnmaskexample.png" height=800>
 
 #### Features
 
