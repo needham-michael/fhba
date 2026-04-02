@@ -84,8 +84,9 @@ class StageSetup(param.Parameterized):
                 duration=6000)
             raise ValueError(f"Invalid year {self.year} for {self.satellite_full}.")
 
-        # Authenticate once at startup with persistent credentials
-        registry = Registry(get_satpy_area_def=True, auth_earthaccess=True).load_json()
+        # Don't load the full registry here to improve startup speed, just ensure the 
+        # application state is loaded.
+        registry = Registry(get_satpy_area_def=False, auth_earthaccess=False).load_json()
 
         satellite = sat_key
 

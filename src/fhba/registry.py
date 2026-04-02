@@ -499,76 +499,147 @@ class GranuleManager:
         gdf = gpd.GeoDataFrame(records, geometry=counties['geometry'].values, crs=counties.crs)
         return gdf
 
-    def get_viirs_active_fire_overlay(self, date, buffer_days=0):
-        """Fetch VIIRS active fire data and return as an hv.Points overlay.
-        Downloads VNP14IMG granules for the given date and returns fire pixel
-        locations as a HoloViews Points object suitable for overlaying on the
-        analysis image. Requires an active earthaccess session.
+    def get_hms_active_fire_overlay(self, date, lookback_days=3, buffer_days=0):
+        """
+        Fetch NOAA Hazard Mapping System fire points and return as hv.Points overlay.
+        Stratifies fires by age and colors them using the YlOrBr colormap (yellow→orange→brown).
+        
+        Uses NOAA text point files (Lon, Lat, YearDay, Time, Satellite, Method, Ecosystem, FRP).
+        
         Parameters
         ----------
-        date : str (YYYY-MM-DD)
+        date : str
+            Reference date (YYYY-MM-DD).
+        lookback_days : int, default 3
+            Number of days to look back from reference date (inclusive).
         buffer_days : int, default 0
-            Expand the temporal search by ±buffer_days around *date*.
+            Additional offset (deprecated; kept for backward compatibility).
+        
         Returns
         -------
-        hv.Points or None
-            Fire pixel overlay in projected coordinates, or None if no fire
-            pixels were found.
+        hv.Overlay or None
+            Combined HoloViews overlay with age-stratified fire points, or None if no fires found.
         """
-        import tempfile
+        import io
+        import requests
         import pandas as pd
-        short_name = {
-            'Suomi-NPP': 'VNP14IMG',
-            'NOAA-20': 'VJ114IMG',
-            'NOAA-21': 'VJ214IMG',
-        }.get(self.satellite_name, 'VNP14IMG')
+        from matplotlib.cm import YlOrBr
 
-        start = pd.Timestamp(date) - pd.Timedelta(days=buffer_days)
-        end = pd.Timestamp(date) + pd.Timedelta(days=buffer_days)
+        def _hms_url_for_date(dt):
+            return (
+                "https://satepsanone.nesdis.noaa.gov/pub/FIRE/web/HMS/Fire_Points/Text/"
+                f"{dt.year}/{dt.month:02d}/hms_fire{dt.year}{dt.month:02d}{dt.day:02d}.txt"
+            )
 
-        granules = earthaccess.search_data(
-            short_name=short_name,
-            bounding_box=tuple(self.spatial),
-            temporal=(start.strftime('%Y-%m-%d'), end.strftime('%Y-%m-%d')),
-        )
-        if not granules:
-            logger.info("No active fire granules found for %s on %s.", self.satellite_name, date)
+        def _load_points_from_text(text):
+            # the first row is header names, comma-delimited with spaces
+            df = pd.read_csv(io.StringIO(text), sep=",", skipinitialspace=True)
+            if 'Lon' not in df.columns or 'Lat' not in df.columns:
+                raise ValueError("HMS file missing expected Lon/Lat columns")
+            # drop NA just in case
+            df = df[['Lon', 'Lat']].dropna()
+            if df.empty:
+                return np.array([]), np.array([])
+            return df['Lon'].to_numpy(dtype=float), df['Lat'].to_numpy(dtype=float)
+
+        # Generate color palette from YlOrBr colormap
+        # Normalize age to [0, 1] so most recent (age 1) is yellow, oldest is brown
+        # Skip day 0 (today) and only show days 1-3
+        cmap = YlOrBr
+        age_color_map = {}
+        for age_days in range(1, lookback_days + 1):
+            # Inverse normalization: age 1 → 0.3 (yellow), age lookback_days → 1.0 (brown)
+            norm_val = 0.3 + ((age_days - 1) / max(1, lookback_days - 1)) * 0.7
+            rgba = cmap(norm_val)
+            hex_color = '#{:02x}{:02x}{:02x}'.format(
+                int(rgba[0] * 255), int(rgba[1] * 255), int(rgba[2] * 255)
+            )
+            age_color_map[age_days] = hex_color
+
+        # Stratify fires by age (skip day 0 = today, only show 1-3 days ago)
+        fire_by_age = {}
+        for day_offset in range(1, lookback_days + 1):
+            fire_by_age[day_offset] = []
+
+        # Fetch HMS files going backward from reference date (skip today)
+        for day_offset in range(1, lookback_days + 1):
+            dt = pd.Timestamp(date) - pd.Timedelta(days=day_offset)
+            url = _hms_url_for_date(dt)
+            try:
+                resp = requests.get(url, timeout=30)
+            except requests.RequestException as exc:
+                logger.warning("HMS fire points request failed for %s: %s", dt.date(), exc)
+                continue
+
+            if resp.status_code != 200:
+                logger.info("No HMS fire point file for %s (HTTP %s)", dt.date(), resp.status_code)
+                continue
+
+            try:
+                lons, lats = _load_points_from_text(resp.text)
+            except Exception as exc:
+                logger.warning("Could not parse HMS fire file for %s: %s", dt.date(), exc)
+                continue
+
+            if lons.size == 0:
+                continue
+
+            xs, ys = self.satpy_area_def.get_projection_coordinates_from_lonlat(lons, lats)
+            x_min, y_min, x_max, y_max = self.satpy_area_def.area_extent
+            in_aoi = (xs >= x_min) & (xs <= x_max) & (ys >= y_min) & (ys <= y_max)
+
+            # Accumulate points for this age in the stratified dict
+            fire_by_age[day_offset].extend(
+                list(zip(xs[in_aoi].tolist(), ys[in_aoi].tolist()))
+            )
+
+        # Check if any fires were found
+        total_fires = sum(len(pts) for pts in fire_by_age.values())
+        if total_fires == 0:
             return None
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            files = earthaccess.download(granules, local_path=tmpdir)
-
-            fire_xs, fire_ys = [], []
-            for f in files:
-                try:
-                    # VNP14IMG Collection 2 files are flat — all FP_* variables
-                    # are at the top level with no groups.
-                    # Use context manager so the file handle is released before
-                    # the TemporaryDirectory tries to delete the file (WinError 32).
-                    with xr.open_dataset(str(f)) as ds:
-                        lons = ds['FP_longitude'].values.ravel()
-                        lats = ds['FP_latitude'].values.ravel()
-                        xs, ys = self.satpy_area_def.get_projection_coordinates_from_lonlat(lons, lats)
-                        # Keep only fire pixels inside the AOI extent so the
-                        # overlay doesn't blow up the HoloViews axis limits.
-                        x_min, y_min, x_max, y_max = self.satpy_area_def.area_extent
-                        in_aoi = (
-                            (xs >= x_min) & (xs <= x_max) &
-                            (ys >= y_min) & (ys <= y_max)
-                        )
-                        fire_xs.extend(xs[in_aoi].tolist())
-                        fire_ys.extend(ys[in_aoi].tolist())
-                except Exception as exc:
-                    logger.warning("Could not read active fire file %s: %s", f, exc)
-
-        if not fire_xs:
-            return None
-
+        # Create per-age HoloViews Points objects
         x_min, y_min, x_max, y_max = self.satpy_area_def.area_extent
-        overlay = hv.Points(list(zip(fire_xs, fire_ys)), label='Active Fire').opts(
-            color='yellow', marker='triangle', size=8, alpha=0.8,
-            xlim=(x_min, x_max), ylim=(y_min, y_max))
-        return overlay
+        overlays = []
+
+        age_labels = {
+            0: "Active Fire (Today)",
+            1: "Active Fire (1 day ago)",
+            2: "Active Fire (2 days ago)",
+            3: "Active Fire (3 days ago)",
+            4: "Active Fire (4+ days ago)",
+        }
+
+        for age_days in sorted(fire_by_age.keys()):
+            points = fire_by_age[age_days]
+            if not points:
+                continue
+
+            color = age_color_map.get(age_days, age_color_map[lookback_days - 1])
+            label = age_labels.get(age_days, f"Active Fire ({age_days}d ago)")
+
+            pts_obj = hv.Points(points, label=label).opts(
+                color=color, marker='o', size=5, alpha=1.0,
+                line_color='grey', line_width=0.5,
+                xlim=(x_min, x_max), ylim=(y_min, y_max),
+                
+            )
+            overlays.append(pts_obj)
+
+        # Compose all age-stratified overlays into a single HoloViews Overlay
+        if not overlays:
+            return None
+
+        combined = overlays[0]
+        for overlay in overlays[1:]:
+            combined = combined * overlay
+
+        # Use legend click policy hide so deactivated lines disappear instead of becoming translucent)
+        return combined.opts(click_policy='hide')
+
+    def get_viirs_active_fire_overlay(self, date, lookback_days=3, buffer_days=0):
+        """Backward-compatible alias to get_hms_active_fire_overlay."""
+        return self.get_hms_active_fire_overlay(date, lookback_days=lookback_days, buffer_days=buffer_days)
 
     def prepare_data(self, date, resampler='nearest'):
         """Prepare data for a given date by downloading and preprocessing granules."""

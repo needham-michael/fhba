@@ -55,7 +55,7 @@ class StageAnalyze(param.Parameterized):
         )
 
         show_fire_checkbox = pn.widgets.Checkbox(
-            name="Show VIIRS Active Fire Overlay", value=True
+            name="Show HMS Active Fire Overlay", value=True
         )
 
         load_pts_button = pn.widgets.Button(
@@ -75,7 +75,7 @@ class StageAnalyze(param.Parameterized):
             composite = rgb * points_burned * points_unburned
             if show_fire_checkbox.value:
                 try:
-                    fire_overlay = self.gm.get_viirs_active_fire_overlay(date)
+                    fire_overlay = self.gm.get_hms_active_fire_overlay(date)
                     if fire_overlay is not None:
                         composite = composite * fire_overlay
                 except Exception as exc:

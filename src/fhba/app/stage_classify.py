@@ -164,7 +164,7 @@ class StageClassify(param.Parameterized):
             fire_overlay = None
             if show_fire_checkbox.value:
                 try:
-                    fire_overlay = self.gm.get_viirs_active_fire_overlay(date)
+                    fire_overlay = self.gm.get_hms_active_fire_overlay(date)
                 except Exception as exc:
                     logger.warning("Could not load active fire overlay: %s", exc)
             # Remember the overlay so the classify callback can re-apply it.
@@ -216,6 +216,7 @@ class StageClassify(param.Parameterized):
                 return lm_resampled
 
             if not os.path.exists(lm_full):
+                print(f"Landcover mask file not found at expected location: {lm_full}")
                 pn.state.notifications.error("Landcover mask file not found.", duration=6000)
                 return None
 
