@@ -1,3 +1,5 @@
+import logging
+
 import pandas as pd
 import numpy as np
 import xarray as xr
@@ -7,50 +9,178 @@ from sklearn.metrics import euclidean_distances
 
 from fhba.image import nonlinear_enhancement
 
-def stack_bands(ds_processed,band_list,nbr_bands=None):
+logger = logging.getLogger(__name__)
 
+
+def stack_bands(ds_processed, band_list, nbr_bands=None, ndvi_bands=None):
+    """Stack satellite bands into a (z, band) pixel matrix.
+
+    Parameters
+    ----------
+    ds_processed : xr.Dataset
+        Preprocessed satellite dataset.
+    band_list : list of str
+        Band variable names to include.
+    nbr_bands : list of str, optional
+        Two-element list [nir_band, swir_band] used to compute NBR and append
+        it as an extra feature.
+    ndvi_bands : list of str, optional
+        Two-element list [nir_band, red_band] used to compute NDVI and append
+        it as an extra feature.
+
+    Returns
+    -------
+    pixel_vector_1d : xr.DataArray
+        Stacked pixel matrix with dimensions (z, band).
+    pixel_vector : xr.DataArray
+        2D pixel matrix with dimensions (x, y, band).
+    """
     bands = [nonlinear_enhancement(255 * ds_processed[x].values / 100) / 255 for x in band_list]
- 
+
     if nbr_bands is not None:
         nir_band, swir_band = nbr_bands
         nir = ds_processed[nir_band]
         swir = ds_processed[swir_band]
-
         nbr = (nir - swir) / (nir + swir)
-
         bands.append(nbr)
+
+    if ndvi_bands is not None:
+        nir_band, red_band = ndvi_bands
+        nir = ds_processed[nir_band]
+        red = ds_processed[red_band]
+        ndvi = (nir - red) / (nir + red)
+        bands.append(ndvi)
+
+    # Use first available I-band or M-band as coordinate reference
+    ref_band = None
+    for b in band_list:
+        if b in ds_processed:
+            ref_band = b
+            break
+    if ref_band is None:
+        ref_band = list(ds_processed.data_vars)[0]
 
     pixel_vector = xr.concat(
         [xr.DataArray(
             band,
-            dims=ds_processed['I01'].dims,
-            coords=ds_processed['I01'].coords
-            ) for band in bands],
+            dims=ds_processed[ref_band].dims,
+            coords=ds_processed[ref_band].coords
+        ) for band in bands],
         dim="band"
-    ).transpose(...,"band")
+    ).transpose(..., "band")
 
-    pixel_vector_1d = pixel_vector.stack(z=['x','y'])
+    pixel_vector_1d = pixel_vector.stack(z=['x', 'y'])
 
     return pixel_vector_1d, pixel_vector
 
-def get_cloudmask(cldmask_nc,threshold=0.80):
+
+def get_cloudmask(cldmask_nc, threshold=0.80):
+    """Load cloud mask and apply binary dilation to account for cloud edges/shadows.
+
+    Supports two cloud mask formats:
+    * ``Clear_Sky_Confidence`` (VIIRS / MODIS L2): continuous score in [0, 1];
+      pixels with score >= *threshold* are treated as clear.
+    * ``Fmask`` (Landsat HLS): uint8 bit-field; bits 1 (cloud), 2 (adjacent
+      cloud) and 3 (cloud shadow) indicate contaminated pixels — clear when
+      all three bits are zero (``Fmask & 0x0E == 0``).
+    """
     with xr.open_dataset(cldmask_nc) as ds_cldmask:
-
-        cldmask = ds_cldmask['Clear_Sky_Confidence'] >= threshold
-
-        # Apply binary dilation to expand areas around cloudy pixels to account for 
-        # cloud shadow and other cloud edge effects
+        if 'Clear_Sky_Confidence' in ds_cldmask:
+            cldmask = ds_cldmask['Clear_Sky_Confidence'] >= threshold
+        elif 'Fmask' in ds_cldmask:
+            # Fill NaN (no-data) with 0xFF so all cloud bits are set → cloudy
+            fmask = ds_cldmask['Fmask'].fillna(255).astype(int)
+            cldmask = (fmask & 0x0E) == 0   # bits 1/2/3 = cloud/adj-cloud/shadow
+        else:
+            raise KeyError(
+                f"Cloud mask file '{cldmask_nc}' contains neither "
+                "'Clear_Sky_Confidence' nor 'Fmask'.")
         cldmask = xr.DataArray(
-            data=1-binary_dilation(binary_dilation(1-cldmask)),
-            # data=cldmask,
+            data=1 - binary_dilation(binary_dilation(1 - cldmask)),
             coords=cldmask.coords,
             dims=cldmask.dims
         )
-
     return cldmask
 
+
+def compute_dnbr(pre_nc, post_nc, nir_band, swir_band):
+    """Compute differenced Normalized Burn Ratio (dNBR = NBR_pre - NBR_post).
+
+    Higher positive values indicate more severe burning.
+
+    Parameters
+    ----------
+    pre_nc : str
+        Path to pre-fire processed NetCDF file.
+    post_nc : str
+        Path to post-fire processed NetCDF file.
+    nir_band : str
+        Band name for Near-Infrared.
+    swir_band : str
+        Band name for Short-Wave Infrared.
+
+    Returns
+    -------
+    dnbr : xr.DataArray
+        dNBR DataArray on the post-fire grid.
+    """
+    def _nbr(ds, nir, swir):
+        n = ds[nir].astype(float)
+        s = ds[swir].astype(float)
+        return (n - s) / (n + s)
+
+    with xr.open_dataset(pre_nc) as ds_pre:
+        nbr_pre = _nbr(ds_pre, nir_band, swir_band).load()
+
+    with xr.open_dataset(post_nc) as ds_post:
+        nbr_post = _nbr(ds_post, nir_band, swir_band).load()
+
+    dnbr = nbr_pre - nbr_post
+    return dnbr
+
+
 def classify_pixels_eucl(
-        userpts_csv,processed_nc,landmask_nc,cldmask_nc=None,band_list=None,nbr_bands=None,area_def=None,lonlat_to_xy=False):
+        userpts_csv, processed_nc, landmask_nc, cldmask_nc=None,
+        band_list=None, nbr_bands=None, ndvi_bands=None,
+        dnbr_array=None, area_def=None, lonlat_to_xy=False,
+        min_area_pixels=5):
+    """Classify pixels as burned or unburned using Euclidean distance to training points.
+
+    Parameters
+    ----------
+    userpts_csv : str
+        Path to CSV file with user-selected training points (columns: x, y, isBurned).
+    processed_nc : str
+        Path to preprocessed satellite NetCDF file.
+    landmask_nc : str
+        Path to resampled NLCD land-cover mask GeoTIFF.
+    cldmask_nc : str, optional
+        Path to processed cloud mask NetCDF file.
+    band_list : list of str, optional
+        Bands to use as features. Defaults to all I/M bands in the dataset.
+    nbr_bands : list of str, optional
+        [nir_band, swir_band] for computing NBR feature.
+    ndvi_bands : list of str, optional
+        [nir_band, red_band] for computing NDVI feature.
+    dnbr_array : xr.DataArray, optional
+        Pre-computed dNBR array to append as an additional feature.
+    area_def : pyresample.AreaDefinition, optional
+        Required when lonlat_to_xy=True to convert lon/lat to projected x/y.
+    lonlat_to_xy : bool, default False
+        If True, convert lon/lat columns in userpts_csv to projected coordinates.
+    min_area_pixels : int, default 5
+        Minimum connected-component size to retain in the burn mask. Components
+        smaller than this are removed as noise.
+
+    Returns
+    -------
+    burnmask : xr.Dataset
+        Dataset with a 'burnmask' variable (1 = burned, 0 = not burned/masked).
+    confidence_ds : xr.Dataset
+        Dataset with a 'confidence' variable = (dist_to_unburned - dist_to_burned).
+        Positive values indicate confident burned classification.
+    """
+    from fhba.process_landcover_mask import flip_singletons
 
     with xr.open_dataset(landmask_nc).isel(band=0) as lcmask:
         with xr.open_dataset(processed_nc) as ds_processed:
@@ -60,80 +190,89 @@ def classify_pixels_eucl(
 
             if lonlat_to_xy:
                 if area_def is None:
-                    raise ValueError("area_def must be provided for coordinate transformation in classify_pixels_eucl.")
-
-                x,y = area_def.get_projection_coordinates_from_lonlat(df_userpts['longitude'],df_userpts['latitude'])
-
+                    raise ValueError(
+                        "area_def must be provided for coordinate transformation in classify_pixels_eucl.")
+                x, y = area_def.get_projection_coordinates_from_lonlat(
+                    df_userpts['longitude'], df_userpts['latitude'])
                 df_userpts['x'] = x
                 df_userpts['y'] = y
-
-            x = df_userpts['x']
-            y = df_userpts['y']
 
             if cldmask_nc is not None:
                 cldmask = get_cloudmask(cldmask_nc)
             else:
                 cldmask = xr.ones_like(lcmask)
 
-            
             try:
                 daily_mask = (lcmask * cldmask).band_data
-                daily_mask  = xr.DataArray(
-                    # data=1-binary_dilation(1-daily_mask),
+                daily_mask = xr.DataArray(
                     data=daily_mask,
                     coords=cldmask.coords,
                     dims=cldmask.dims
                 )
-
             except ValueError:
-                print(f"{lcmask =}")
-                print("="*79)
-                print(f"{cldmask =}")
-                raise ValueError
+                logger.error("daily_mask computation failed. lcmask=%s  cldmask=%s", lcmask, cldmask)
+                raise
 
             if band_list is None:
-                band_list = [var for var in ds_processed.data_vars if var.startswith(('I','M'))]
+                band_list = [var for var in ds_processed.data_vars if var.startswith(('I', 'M'))]
 
-            pixel_vector_1d, pixel_vector = stack_bands(ds_processed,band_list,nbr_bands=nbr_bands)
+            pixel_vector_1d, pixel_vector = stack_bands(
+                ds_processed, band_list, nbr_bands=nbr_bands, ndvi_bands=ndvi_bands)
 
-            Xfull = pd.DataFrame(pixel_vector_1d.values).T
+            # Optionally append dNBR as an extra feature column
+            if dnbr_array is not None:
+                dnbr_stacked = dnbr_array.stack(z=['x', 'y'])
+                Xfull = pd.DataFrame(pixel_vector_1d.values).T
+                Xfull['dnbr'] = dnbr_stacked.values
+            else:
+                Xfull = pd.DataFrame(pixel_vector_1d.values).T
 
-            df_isburned = df_userpts[df_userpts['isBurned']==1]
-            df_unburned = df_userpts[df_userpts['isBurned']==0]
+            df_isburned = df_userpts[df_userpts['isBurned'] == 1]
+            df_unburned = df_userpts[df_userpts['isBurned'] == 0]
 
             x_burned = df_isburned['x'].values
             y_burned = df_isburned['y'].values
             x_unburned = df_unburned['x'].values
             y_unburned = df_unburned['y'].values
 
-            Xbrn = pd.DataFrame([pixel_vector.sel(x=x,y=y,method='nearest').data for x,y in zip(x_burned,y_burned)])
-            Xunb = pd.DataFrame([pixel_vector.sel(x=x,y=y,method='nearest').data for x,y in zip(x_unburned,y_unburned)])
+            Xbrn = pd.DataFrame([pixel_vector.sel(x=x, y=y, method='nearest').data
+                                  for x, y in zip(x_burned, y_burned)])
+            Xunb = pd.DataFrame([pixel_vector.sel(x=x, y=y, method='nearest').data
+                                  for x, y in zip(x_unburned, y_unburned)])
 
-            # Calculate the distance between each pixel and each point within the burned and
-            # unburned sets, then calculate the mean from this distance
-            dist2brn = np.mean(euclidean_distances(X=Xfull,Y=Xbrn),axis=1)
-            dist2unb = np.mean(euclidean_distances(X=Xfull,Y=Xunb),axis=1)
+            # Append dNBR to training vectors too
+            if dnbr_array is not None:
+                brn_dnbr = [float(dnbr_array.sel(x=x, y=y, method='nearest'))
+                            for x, y in zip(x_burned, y_burned)]
+                unb_dnbr = [float(dnbr_array.sel(x=x, y=y, method='nearest'))
+                            for x, y in zip(x_unburned, y_unburned)]
+                Xbrn['dnbr'] = brn_dnbr
+                Xunb['dnbr'] = unb_dnbr
 
-            # Identify whether a given pixel is closer to the burned or unburned set   
-            Xfull['isBurned'] = dist2brn < dist2unb 
+            dist2brn = np.mean(euclidean_distances(X=Xfull, Y=Xbrn), axis=1)
+            dist2unb = np.mean(euclidean_distances(X=Xfull, Y=Xunb), axis=1)
 
-            is_burned = xr.DataArray(Xfull['isBurned'],coords={'z':pixel_vector_1d.z}).unstack()
+            Xfull['isBurned'] = dist2brn < dist2unb
+
+            # Confidence = margin between unburned distance and burned distance.
+            # Positive → confidently burned; negative → confidently unburned.
+            confidence_1d = dist2unb - dist2brn
+
+            is_burned = xr.DataArray(
+                Xfull['isBurned'], coords={'z': pixel_vector_1d.z}).unstack()
+
+            # Apply minimum area filter to remove small spurious patches
+            if min_area_pixels > 1:
+                cleaned = flip_singletons(
+                    is_burned.values, diagonals=False, which='true',
+                    min_size=min_area_pixels)
+                is_burned = xr.DataArray(cleaned, coords=is_burned.coords, dims=is_burned.dims)
 
             burnmask = (is_burned * daily_mask).T.to_dataset(name='burnmask')
-            
 
-            # burnmask = (daily_mask.band_data * is_burned.T).to_dataset(name='burnmask')
+            # Build confidence dataset on the same grid
+            confidence_da = xr.DataArray(
+                confidence_1d, coords={'z': pixel_vector_1d.z}).unstack()
+            confidence_ds = (confidence_da * daily_mask).T.to_dataset(name='confidence')
 
-            # burnmask['lons'] = xr.DataArray(
-            #     ds_processed.longitude.values,
-            #     coords=burnmask.burnmask.coords,
-            #     dims=burnmask.burnmask.dims
-            # )
-
-            # burnmask['lats'] = xr.DataArray(
-            #     ds_processed.latitude.values,
-            #     coords=burnmask.burnmask.coords,
-            #     dims=burnmask.burnmask.dims
-            # )
-
-    return burnmask
+    return burnmask, confidence_ds

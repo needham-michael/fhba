@@ -19,6 +19,7 @@ paths: # relative to /fhba/app/
   userpts_dir: "./appdata/userpts"
   burnmask_dir: "./appdata/burnmask"
   county_shp: "./appdata/_static/FH_Counties_Updated.shp/FH_Counties_Updated"
+  nlcd_cache_dir: "./appdata/annual_nlcd"
 
 nlcd:
   nlcd_filedir: "fhba/app/appdata/annual_nlcd"
@@ -26,21 +27,49 @@ nlcd:
 
 viirs:
   full_band_list: ["I01","I02","I03","M03","M04","M05","M07","M08","M11"]
-  nir_red_band_list: ["I01","I02"]
+  # nir_red_band_list: index 0 = NIR (I02, 0.865 um), index 1 = RED (I01, 0.640 um)
+  nir_red_band_list: ["I02","I01"]
+  nbr_bands: ["I02","M11"]   # NIR=I02, SWIR=M11
+  ndvi_bands: ["I02","I01"]  # NIR=I02, RED=I01
   Suomi-NPP:
     short_name_list: ["VNP02IMG", "VNP03IMG", "VNP02MOD", "VNP03MOD"]
     cloud_mask_short_name: "CLDMSK_L2_VIIRS_SNPP"
+    start_year: 2012
   NOAA-20:
     short_name_list: ["VJ102IMG", "VJ103IMG", "VJ102MOD", "VJ103MOD"]
     cloud_mask_short_name: "CLDMSK_L2_VIIRS_NOAA20"
+    start_year: 2018
   NOAA-21:
       short_name_list: ["VJ202IMG", "VJ203IMG", "VJ202MOD", "VJ203MOD"]
       cloud_mask_short_name: "CLDMSK_L2_VIIRS_NOAA21"
-
+      start_year: 2023
 
 modis:
-  full_band_list: ["I01","I02","M03","M04","M05"]
+  full_band_list: ["1","2","3","4","7"]
+  # nir_red_band_list: index 0 = NIR (band 2, 0.841-0.876 um), index 1 = RED (band 1, 0.620-0.670 um)
+  nir_red_band_list: ["2","1"]
+  nbr_bands: ["2","7"]   # NIR=band2, SWIR=band7
+  ndvi_bands: ["2","1"]  # NIR=band2, RED=band1
   AQUA:
-    short_name_list: ["VNP02IMG", "VNP03IMG", "VNP02MOD", "VNP03MOD"]
-  TERRA: 
-    short_name_list: ["VNP02IMG", "VNP03IMG", "VNP02MOD", "VNP03MOD"]
+    short_name_list: ["MYD02QKM","MYD02HKM","MYD03"]
+    cloud_mask_short_name: "MYD35_L2"
+    start_year: 2002
+  TERRA:
+    short_name_list: ["MOD02QKM","MOD02HKM","MOD03"]
+    cloud_mask_short_name: "MOD35_L2"
+    start_year: 2000
+
+landsat:
+  full_band_list: ["B4","B5","B6","B7"]  # Red, NIR, SWIR1, SWIR2
+  # nir_red_band_list: index 0 = NIR (B5), index 1 = RED (B4)
+  nir_red_band_list: ["B5","B4"]
+  nbr_bands: ["B5","B7"]   # NIR=B5, SWIR2=B7
+  ndvi_bands: ["B5","B4"]  # NIR=B5, RED=B4
+  Landsat-8:
+    short_name_list: ["HLSL30"]
+    cloud_mask_short_name: "HLSL30"
+    start_year: 2013
+  Landsat-9:
+    short_name_list: ["HLSL30"]
+    cloud_mask_short_name: "HLSL30"
+    start_year: 2021

@@ -29,7 +29,7 @@ class StageDownloadPreviews(param.Parameterized):
 
         progress_bar = pn.widgets.Tqdm()
 
-        png_pane = pn.pane.PNG(None,width=400,height=400,fixed_aspect=True)
+        png_pane = pn.pane.Image(None,width=400,height=400,fixed_aspect=True)
         png_label = pn.pane.Markdown("Preview Image for Date:",width=400)
 
         os.makedirs(self.gm.truecolor_img_dir, exist_ok=True)
