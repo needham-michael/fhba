@@ -76,12 +76,6 @@ class StageSetup(param.Parameterized):
 
         sat_key = self.satellite_full.split()[0]   # 'Suomi-NPP', 'NOAA-20', 'Landsat-8', etc.
 
-        if sat_key in ['AQUA', 'TERRA', 'Landsat-8', 'Landsat-9']:
-            pn.state.notifications.error(
-                f"{self.satellite_full} imagery is not yet supported. Only VIIRS imagery is currently implemented.",
-                duration=6000)
-            raise ValueError(f"Unsupported satellite {sat_key}.")
-
         min_year = _SATELLITE_MIN_YEAR.get(sat_key, 2012)
 
         if self.year < min_year:

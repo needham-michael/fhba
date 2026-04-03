@@ -114,21 +114,30 @@ def _load_hls_bands(granule_files, band_list, area_def, resampler='nearest'):
                 if band.lower() != 'fmask':
                     sf = float(da.attrs.get('scale_factor', 0.0001))
                     da = da * sf * 100.0  # → percent reflectance, same as VIIRS
+                # Assign canonical coordinates and strip extras NOW so all tiles
+                # share an identical coordinate grid before mosaicking.
+                da = da.assign_coords(x=('x', xs), y=('y', ys))
+                da = da.drop_vars('spatial_ref', errors='ignore')
+                for cf_attr in ('scale_factor', 'add_offset', '_FillValue'):
+                    da.attrs.pop(cf_attr, None)
                 tile_das.append(da)
             except Exception as exc:
                 logger.warning("Could not load HLS file '%s': %s", fp, exc)
         if not tile_das:
             continue
-        # Mosaic: fill NaN gaps in tile[0] from subsequent tiles
-        merged = tile_das[0].copy()
-        for other in tile_das[1:]:
-            merged = merged.where(merged.notnull(), other)
-        # Assign canonical coordinate values and strip spatial_ref scalar
-        merged = merged.assign_coords(x=('x', xs), y=('y', ys))
-        merged = merged.drop_vars('spatial_ref', errors='ignore')
-        # Remove CF encoding attributes (scaling already applied above).
-        for cf_attr in ('scale_factor', 'add_offset', '_FillValue'):
-            merged.attrs.pop(cf_attr, None)
+        # Mosaic: stack all tiles and take the first valid (non-NaN) value at
+        # each pixel so the full AOI is covered even when multiple tiles are
+        # needed.
+        if len(tile_das) == 1:
+            merged = tile_das[0]
+        else:
+            import numpy as _np
+            data_stack = _np.stack([t.values for t in tile_das], axis=0)
+            first_valid = _np.full(data_stack.shape[1:], _np.nan, dtype=_np.float32)
+            for layer in data_stack:
+                fill_mask = _np.isnan(first_valid) & ~_np.isnan(layer)
+                first_valid[fill_mask] = layer[fill_mask]
+            merged = tile_das[0].copy(data=first_valid)
         das[band] = merged.astype('float32')
 
     return xr.Dataset(das)
@@ -222,11 +231,8 @@ class GranuleManager:
         self.nbr_bands = nbr_bands  # [nir_band, swir_band] or None
         self.ndvi_bands = ndvi_bands  # [nir_band, red_band] or None
 
-        if self.instrument not in ['viirs', None]:
-            if self.instrument in ['landsat', 'modis']:
-                raise NotImplementedError(f"Instrument '{instrument}' is not yet supported. Only VIIRS imagery is currently implemented.")
-            else:
-                raise ValueError(f"Instrument {instrument} not recognized. Valid options are 'viirs'.")
+        if self.instrument not in ['viirs', 'modis', 'landsat', None]:
+            raise ValueError(f"Instrument {instrument} not recognized. Valid options are 'viirs', 'modis', or 'landsat'.")
 
         # Define dictionaries to maintain status of satellite granules by date at
         # various workflow stages.
@@ -1658,6 +1664,29 @@ class GranuleRegistry:
                 ndvi_bands = self.modis_ndvi_bands
                 cloud_mask_short_name = (self.modis_cloud_mask_short_names or {}).get(satellite_name)
 
+            # Use native spatial resolution for each instrument so reprojected
+            # data preserves the sensor's ground sampling distance.
+            # VIIRS: keep the shared default grid (≈375 m I-bands / 750 m M-bands).
+            # MODIS: 250 m (QKM bands drive the band list).
+            # Landsat HLS: 30 m native resolution.
+            _INSTRUMENT_RES_M = {'modis': 250, 'landsat': 30}
+            _res_m = _INSTRUMENT_RES_M.get(instrument, None)
+            if _res_m is not None:
+                import warnings as _w
+                from pyresample import create_area_def as _cad
+                with _w.catch_warnings():
+                    _w.simplefilter('ignore')
+                    _gm_area_def = _cad(
+                        area_id=self.spatial_name,
+                        projection=3857,
+                        resolution=_res_m,
+                        area_extent=(self.min_lon, self.min_lat,
+                                     self.max_lon, self.max_lat),
+                        units='degrees',
+                    )
+            else:
+                _gm_area_def = self.satpy_area_def
+
             self.satellites[satellite_name] = GranuleManager(
                 satellite_name,
                 short_name_list=short_name_list,
@@ -1679,7 +1708,7 @@ class GranuleRegistry:
                 max_lat=self.max_lat,
                 max_lon=self.max_lon,
                 spatial_name=self.spatial_name,
-                satpy_area_def=self.satpy_area_def,
+                satpy_area_def=_gm_area_def,
                 county_shp=self.county_shp
             )
         else:
@@ -1802,24 +1831,31 @@ class Registry:
         data_year = str(data_year)
         self.granule_registry[data_year] = granule_registry
 
-    def define_satpy_area_def(self,width=500,height=1000):
+    def define_satpy_area_def(self, width=500, height=1000, resolution_m=None):
         import warnings
         from pyresample import create_area_def
-        warnings.warn("Using hardcoded parameters for registry.satpy_area_def")
         warnings.warn("Projection set to Web Mercator (EPSG:3857) for registry.satpy_area_def.")
         area_id = self.spatial_name
-        # projection = {'proj': 'lcc', 'lon_0': -95, 'lat_0': 25, 'lat_1': 35}
-        projection = 3857 # EPSG Code for Web Mercator
+        projection = 3857  # EPSG Code for Web Mercator
         area_extent = self.spatial
         units = 'degrees'
-        satpy_area_def = create_area_def(
-            area_id=area_id,
-            projection=projection,
-            width=width,
-            height=height,
-            area_extent=area_extent,
-            units=units
-        )
+        if resolution_m is not None:
+            satpy_area_def = create_area_def(
+                area_id=area_id,
+                projection=projection,
+                resolution=resolution_m,
+                area_extent=area_extent,
+                units=units,
+            )
+        else:
+            satpy_area_def = create_area_def(
+                area_id=area_id,
+                projection=projection,
+                width=width,
+                height=height,
+                area_extent=area_extent,
+                units=units,
+            )
         self.satpy_area_def = satpy_area_def
 
     def read_config(self,return_raw_config=False):
@@ -1926,10 +1962,27 @@ class Registry:
 
         if 'satpy_area_def' in data:
             self.define_satpy_area_def()
+            _INSTRUMENT_RES_M = {'modis': 250, 'landsat': 30}
             for gr in self.granule_registry:
                 self.granule_registry[gr].satpy_area_def = self.satpy_area_def
-                for gm in self.granule_registry[gr].satellites:
-                    self.granule_registry[gr].satellites[gm].satpy_area_def = self.satpy_area_def
+                for gm_name in self.granule_registry[gr].satellites:
+                    gm = self.granule_registry[gr].satellites[gm_name]
+                    _res_m = _INSTRUMENT_RES_M.get(
+                        getattr(gm, 'instrument', None), None)
+                    if _res_m is not None:
+                        import warnings as _w
+                        from pyresample import create_area_def as _cad
+                        with _w.catch_warnings():
+                            _w.simplefilter('ignore')
+                            gm.satpy_area_def = _cad(
+                                area_id=self.spatial_name,
+                                projection=3857,
+                                resolution=_res_m,
+                                area_extent=self.spatial,
+                                units='degrees',
+                            )
+                    else:
+                        gm.satpy_area_def = self.satpy_area_def
 
         # Re-apply current config.yaml values to every loaded GranuleRegistry.
         self.read_config()
