@@ -562,13 +562,13 @@ class GranuleManager:
         gdf = gpd.GeoDataFrame(records, geometry=geometries, crs=counties.crs)
         return gdf
 
-    def get_hms_active_fire_overlay(self, date, lookback_days=3, buffer_days=0):
+    def get_hms_active_fire_overlay(self, date, lookback_days=3, buffer_days=0, alpha=1.0):
         """
         Fetch NOAA Hazard Mapping System fire points and return as hv.Points overlay.
         Stratifies fires by age and colors them using the YlOrBr colormap (yellow→orange→brown).
-        
+
         Uses NOAA text point files (Lon, Lat, YearDay, Time, Satellite, Method, Ecosystem, FRP).
-        
+
         Parameters
         ----------
         date : str
@@ -577,7 +577,9 @@ class GranuleManager:
             Number of days to look back from reference date (inclusive).
         buffer_days : int, default 0
             Additional offset (deprecated; kept for backward compatibility).
-        
+        alpha : float, default 1.0
+            Opacity of the fire point markers (0.0 = fully transparent, 1.0 = fully opaque).
+
         Returns
         -------
         hv.Overlay or None
@@ -682,10 +684,9 @@ class GranuleManager:
             label = age_labels.get(age_days, f"Active Fire ({age_days}d ago)")
 
             pts_obj = hv.Points(points, label=label).opts(
-                color=color, marker='o', size=5, alpha=1.0,
+                color=color, marker='o', size=5, alpha=alpha,
                 line_color='grey', line_width=0.5,
                 xlim=(x_min, x_max), ylim=(y_min, y_max),
-                
             )
             overlays.append(pts_obj)
 

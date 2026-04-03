@@ -80,6 +80,10 @@ class StageClassify(param.Parameterized):
         show_fire_checkbox = pn.widgets.Checkbox(
             name="Show VIIRS Active Fire Overlay", value=True
         )
+        fire_opacity_slider = pn.widgets.FloatSlider(
+            name="Fire Point Opacity", start=0.0, end=1.0, step=0.05,
+            value=1.0, width=180,
+        )
 
         load_img_button = pn.widgets.Button(
             name="Load Analysis Date Image", button_type="primary", width=180
@@ -164,7 +168,8 @@ class StageClassify(param.Parameterized):
             fire_overlay = None
             if show_fire_checkbox.value:
                 try:
-                    fire_overlay = self.gm.get_hms_active_fire_overlay(date)
+                    fire_overlay = self.gm.get_hms_active_fire_overlay(
+                        date, alpha=fire_opacity_slider.value)
                 except Exception as exc:
                     logger.warning("Could not load active fire overlay: %s", exc)
             # Remember the overlay so the classify callback can re-apply it.
@@ -418,7 +423,7 @@ class StageClassify(param.Parameterized):
             pn.Column(
                 pn.pane.Markdown("## Classify Pixels"),
                 pn.Row(analysis_date_selector, pre_fire_date_selector),
-                pn.Row(method_selector, show_fire_checkbox),
+                pn.Row(method_selector, show_fire_checkbox, fire_opacity_slider),
                 method_help,
                 pn.Row(load_img_button, categorize_pixel_button, batch_button),
                 pn.layout.Divider(),

@@ -57,6 +57,10 @@ class StageAnalyze(param.Parameterized):
         show_fire_checkbox = pn.widgets.Checkbox(
             name="Show HMS Active Fire Overlay", value=True
         )
+        fire_opacity_slider = pn.widgets.FloatSlider(
+            name="Fire Point Opacity", start=0.0, end=1.0, step=0.05,
+            value=1.0, width=180,
+        )
 
         load_pts_button = pn.widgets.Button(
             name="Import Previous User Points", button_type="primary", width=250
@@ -75,7 +79,8 @@ class StageAnalyze(param.Parameterized):
             composite = rgb * points_burned * points_unburned
             if show_fire_checkbox.value:
                 try:
-                    fire_overlay = self.gm.get_hms_active_fire_overlay(date)
+                    fire_overlay = self.gm.get_hms_active_fire_overlay(
+                        date, alpha=fire_opacity_slider.value)
                     if fire_overlay is not None:
                         composite = composite * fire_overlay
                 except Exception as exc:
@@ -278,7 +283,7 @@ class StageAnalyze(param.Parameterized):
                     load_img_button,
                     loading
                 ),
-                show_fire_checkbox,
+                pn.Row(show_fire_checkbox, fire_opacity_slider),
                 pn.layout.Divider(),
                 table,
                 width=600,
