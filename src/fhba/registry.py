@@ -168,6 +168,14 @@ def _make_hls_truecolor_png(hls_ds, out_path, county_shp=None, target_crs=None):
     r = _pct_stretch(hls_ds['B4'].values)
     g = _pct_stretch(hls_ds['B3'].values)
     b = _pct_stretch(hls_ds['B2'].values)
+
+    # Fill no-data pixels with a neutral gray so the full AOI extent is
+    # always visible rather than appearing as a black void.
+    _nodata = 0.45
+    r = np.where(np.isnan(r), _nodata, r)
+    g = np.where(np.isnan(g), _nodata, g)
+    b = np.where(np.isnan(b), _nodata, b)
+
     rgb = np.stack([r, g, b], axis=-1)
 
     xs = hls_ds['B4'].x.values
@@ -175,6 +183,7 @@ def _make_hls_truecolor_png(hls_ds, out_path, county_shp=None, target_crs=None):
     extent = [xs[0], xs[-1], ys[-1], ys[0]]  # [left, right, bottom, top]
 
     fig, ax = plt.subplots(1, 1, figsize=(5, 10), dpi=150)
+    ax.set_facecolor('#737373')   # match _nodata gray for any axis margin
     ax.imshow(rgb, origin='upper', extent=extent, aspect='auto',
               interpolation='nearest')
 
@@ -1412,42 +1421,97 @@ class GranuleManager:
 
             entries_sorted = sorted(entries, key=_tile_score, reverse=True)
 
-            # Pick the public HTTPS browse link for the best-scoring tile
-            browse_url = None
+            # Collect browse URLs for ALL tiles (not just the best one) so the
+            # stitched preview covers the full AOI.
+            import io as _io
+            from PIL import Image as _PILImage
+            import matplotlib
+            matplotlib.use('Agg')
+            import matplotlib.pyplot as _plt
+
+            tile_images = []  # list of (lon_min, lon_max, lat_min, lat_max, np.array)
             for entry in entries_sorted:
+                # Extract tile bounding box from CMR polygon (lat/lon pairs)
+                polygons = entry.get('polygons', [])
+                if not polygons or not polygons[0]:
+                    continue
+                coords = list(map(float, polygons[0][0].split()))
+                lats = coords[0::2]
+                lons = coords[1::2]
+                tile_lon_min, tile_lon_max = min(lons), max(lons)
+                tile_lat_min, tile_lat_max = min(lats), max(lats)
+
+                # Find public browse URL for this tile
+                browse_url = None
                 for link in entry.get('links', []):
                     href = link.get('href', '')
                     if (href.startswith('https://') and
-                        href.endswith('.jpg') and
-                        'lp-prod-public' in href):
+                            href.endswith('.jpg') and
+                            'lp-prod-public' in href):
                         browse_url = href
-                        logger.debug(
-                            "Selected HLS tile %s (best area/distance score)", entry['title'])
                         break
-                if browse_url:
-                    break
+                if not browse_url:
+                    continue
 
-            if not browse_url:
-                logger.warning("No public browse image found for HLS L30 granules on %s.", date)
+                try:
+                    img_resp = requests.get(browse_url, timeout=30)
+                except Exception as exc:
+                    logger.warning("Browse tile download failed (%s): %s", entry['title'], exc)
+                    continue
+
+                if img_resp.status_code != 200:
+                    logger.warning("HTTP %d for browse tile %s", img_resp.status_code, entry['title'])
+                    continue
+
+                try:
+                    pil_img = _PILImage.open(_io.BytesIO(img_resp.content)).convert('RGB')
+                    tile_images.append((
+                        tile_lon_min, tile_lon_max,
+                        tile_lat_min, tile_lat_max,
+                        np.array(pil_img),
+                    ))
+                    logger.debug("Loaded browse tile %s", entry['title'])
+                except Exception as exc:
+                    logger.warning("Could not decode browse image for %s: %s", entry['title'], exc)
+
+            if not tile_images:
+                logger.warning("No public browse images found for HLS L30 granules on %s.", date)
                 return
 
-            logger.debug("HLS browse URL: %s", browse_url)
-            try:
-                img_resp = requests.get(browse_url, timeout=30)
-            except Exception as exc:
-                logger.warning("Browse image download failed for %s on %s: %s", short_name, date, exc)
-                return
+            # Composite all tile images onto a single geographic canvas
+            aoi_lon_min, aoi_lon_max = self.min_lon, self.max_lon
+            aoi_lat_min, aoi_lat_max = self.min_lat, self.max_lat
+            fig_w, fig_h = 5, 10
+            fig_browse, ax_browse = _plt.subplots(figsize=(fig_w, fig_h), dpi=150)
+            ax_browse.set_xlim(aoi_lon_min, aoi_lon_max)
+            ax_browse.set_ylim(aoi_lat_min, aoi_lat_max)
+            ax_browse.set_facecolor('#737373')  # gray for no-data areas
+            ax_browse.set_aspect('auto')
 
-            if img_resp.status_code == 200:
-                os.makedirs(os.path.dirname(out_path), exist_ok=True)
-                with open(out_path, 'wb') as f:
-                    f.write(img_resp.content)
-                self.truecolor_images_by_date[date] = out_path
-                logger.info("HLS browse image saved to %s", out_path)
-            else:
-                logger.warning(
-                    "Failed to download HLS browse image for %s on %s. HTTP %d",
-                    self.satellite_name, date, img_resp.status_code)
+            for (tlon0, tlon1, tlat0, tlat1, img_arr) in tile_images:
+                ax_browse.imshow(
+                    img_arr,
+                    extent=[tlon0, tlon1, tlat0, tlat1],
+                    origin='upper',
+                    aspect='auto',
+                    interpolation='nearest',
+                )
+
+            if self.county_shp and os.path.exists(str(self.county_shp) + '.shp'):
+                try:
+                    counties = gpd.read_file(str(self.county_shp) + '.shp')
+                    counties = counties.to_crs('EPSG:4326')
+                    counties.boundary.plot(ax=ax_browse, color='white', linewidth=0.75)
+                except Exception as exc:
+                    logger.warning("County overlay failed for HLS browse mosaic: %s", exc)
+
+            ax_browse.set_axis_off()
+            _plt.tight_layout(pad=0)
+            os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
+            fig_browse.savefig(out_path, bbox_inches='tight', pad_inches=0, dpi=150)
+            _plt.close(fig_browse)
+            self.truecolor_images_by_date[date] = out_path
+            logger.info("HLS browse mosaic (%d tiles) saved to %s", len(tile_images), out_path)
         else:
             logger.warning(
                 "retrieve_worldview_image: satellite '%s' is not supported. "
