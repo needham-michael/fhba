@@ -21,6 +21,11 @@ class StageAnalyze(param.Parameterized):
     registry = param.Parameter()
     gm = param.Parameter()
 
+    current_rgb = param.Parameter()
+    current_date = param.Parameter()
+    current_base = param.Parameter()
+    current_fire_overlay = param.Parameter()
+
     @param.depends('year', 'satellite', 'registry', 'gm')
     def table_pane(self, return_df=False):
 
@@ -56,7 +61,15 @@ class StageAnalyze(param.Parameterized):
 
         show_fire_checkbox = pn.widgets.Checkbox(
             name="Show HMS Active Fire Overlay", value=True
+        ) 
+        
+        fire_opacity_slider = pn.widgets.FloatSlider(
+            name="Fire Point Opacity", start=0.0, end=1.0, step=0.05,
+            value=1.0, width=180,
         )
+
+        overlay_loading = pn.indicators.LoadingSpinner(
+            name="Updating overlay...", width=20, height=20, visible=False, value=False)
 
         load_pts_button = pn.widgets.Button(
             name="Import Previous User Points", button_type="primary", width=250
@@ -70,17 +83,17 @@ class StageAnalyze(param.Parameterized):
         points_burned,   points_burned_stream   = initialize_userpoints(color='red',  label='Burned')
         points_unburned, points_unburned_stream = initialize_userpoints(color='blue', marker='+', label='Unburned')
 
-        def _build_composite(rgb, date):
-            """Return rgb * points overlay, optionally with active fire layer."""
-            composite = rgb * points_burned * points_unburned
-            if show_fire_checkbox.value:
-                try:
-                    fire_overlay = self.gm.get_hms_active_fire_overlay(date)
-                    if fire_overlay is not None:
-                        composite = composite * fire_overlay
-                except Exception as exc:
-                    logger.warning("Could not load active fire overlay: %s", exc)
-            return composite
+        def update_overlay(event):
+            if self.current_base is not None:
+                overlay_loading.visible = True
+                overlay_loading.value = True
+                if self.current_fire_overlay and show_fire_checkbox.value:
+                    updated_fire = self.current_fire_overlay.opts('Points', alpha=fire_opacity_slider.value)
+                    hv_pane.object = self.current_base * updated_fire
+                else:
+                    hv_pane.object = self.current_base
+                overlay_loading.visible = False
+                overlay_loading.value = False
 
         def update_hv_rgb(event):
             date = analysis_date_selector.value
@@ -109,7 +122,18 @@ class StageAnalyze(param.Parameterized):
                 return
 
             if rgb is not None:
-                hv_pane.object = _build_composite(rgb, date)
+                self.current_base = rgb * points_burned * points_unburned
+                fire_overlay = None
+                if show_fire_checkbox.value:
+                    try:
+                        fire_overlay = self.gm.get_hms_active_fire_overlay(date, alpha=fire_opacity_slider.value)
+                    except Exception as exc:
+                        logger.warning("Could not load active fire overlay: %s", exc)
+                self.current_fire_overlay = fire_overlay
+                hv_pane.object = self.current_base * fire_overlay if fire_overlay else self.current_base
+
+            self.current_rgb = rgb
+            self.current_date = date
 
             loading.value = False
             loading.visible = False
@@ -161,7 +185,18 @@ class StageAnalyze(param.Parameterized):
                 return
 
             if rgb is not None:
-                hv_pane.object = _build_composite(rgb, date)
+                self.current_base = rgb * points_burned * points_unburned
+                fire_overlay = None
+                if show_fire_checkbox.value:
+                    try:
+                        fire_overlay = self.gm.get_hms_active_fire_overlay(date, alpha=fire_opacity_slider.value)
+                    except Exception as exc:
+                        logger.warning("Could not load active fire overlay: %s", exc)
+                self.current_fire_overlay = fire_overlay
+                hv_pane.object = self.current_base * fire_overlay if fire_overlay else self.current_base
+
+            self.current_rgb = rgb
+            self.current_date = date
 
             loading.value = False
             loading.visible = False
@@ -260,6 +295,8 @@ class StageAnalyze(param.Parameterized):
         export_button.on_click(export_button_callback)
         export_button.on_click(reload_table)
 
+        fire_opacity_slider.param.watch(update_overlay, 'value')
+
         return pn.Row(
             pn.Column(
                 instr,
@@ -278,7 +315,7 @@ class StageAnalyze(param.Parameterized):
                     load_img_button,
                     loading
                 ),
-                show_fire_checkbox,
+                pn.Row(show_fire_checkbox, fire_opacity_slider, overlay_loading),
                 pn.layout.Divider(),
                 table,
                 width=600,
