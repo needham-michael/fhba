@@ -22,7 +22,7 @@ paths: # relative to /fhba/app/
   nlcd_cache_dir: "./appdata/annual_nlcd"
 
 nlcd:
-  nlcd_filedir: "fhba/app/appdata/annual_nlcd"
+  nlcd_filedir: "./appdata/annual_nlcd"
   nlcd_filename: "Annual_NLCD_LndCov_2024_CU_C1V1.tif"
 
 viirs:

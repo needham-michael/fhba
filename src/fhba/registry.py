@@ -821,15 +821,43 @@ class GranuleManager:
         if self.instrument == 'landsat':
             hls_load_bands = list(self.full_band_list)
             hls_ds = None
-            if not nc_file_exists or not truecolor_file_exists:
-                # Include B2 and B3 for truecolor generation if needed
-                tc_extra = [b for b in ('B2', 'B3')
-                            if not truecolor_file_exists and b not in hls_load_bands]
+            if not nc_file_exists and not truecolor_file_exists:
+                # Need both NC (full resolution) and truecolor — load all bands
+                # at the native 30 m resolution.
+                tc_extra = [b for b in ('B2', 'B3') if b not in hls_load_bands]
                 all_bands = hls_load_bands + tc_extra
                 print(f"Loading HLS bands {all_bands} using rioxarray "
                       f"(resampler='{resampler}')...")
                 hls_ds = _load_hls_bands(granule_files, all_bands,
                                          self.satpy_area_def, resampler)
+            elif not nc_file_exists:
+                # Only the NC is missing — load analysis bands at full resolution.
+                print(f"Loading HLS bands {hls_load_bands} using rioxarray "
+                      f"(resampler='{resampler}')...")
+                hls_ds = _load_hls_bands(granule_files, hls_load_bands,
+                                         self.satpy_area_def, resampler)
+            elif not truecolor_file_exists:
+                # NC already exists; only the preview PNG is missing.
+                # Load just the RGB bands at a lightweight preview resolution
+                # (750 × 1500 px) to avoid allocating several GB of RAM for
+                # what is ultimately a small JPEG-sized image.
+                import warnings as _w
+                from pyresample import create_area_def as _cad
+                with _w.catch_warnings():
+                    _w.simplefilter('ignore')
+                    _preview_adef = _cad(
+                        area_id=self.spatial_name,
+                        projection=3857,
+                        width=750, height=1500,
+                        area_extent=(self.min_lon, self.min_lat,
+                                     self.max_lon, self.max_lat),
+                        units='degrees',
+                    )
+                print("Loading HLS RGB bands at preview resolution for "
+                      "truecolor regeneration...")
+                hls_ds = _load_hls_bands(
+                    granule_files, ['B2', 'B3', 'B4'],
+                    _preview_adef, resampler)
 
             if nc_file_exists:
                 print(f"Processed NC already exists for {date}. Skipping save.")
@@ -847,10 +875,16 @@ class GranuleManager:
                 print(f"Truecolor image already exists for {date}. Skipping.")
                 self.truecolor_images_by_date[date] = truecolor_file
             else:
-                ok = _make_hls_truecolor_png(
-                    hls_ds, truecolor_file,
-                    county_shp=self.county_shp,
-                    target_crs=self.satpy_area_def.crs)
+                try:
+                    ok = _make_hls_truecolor_png(
+                        hls_ds, truecolor_file,
+                        county_shp=self.county_shp,
+                        target_crs=self.satpy_area_def.crs)
+                except Exception as _tc_exc:
+                    logger.error(
+                        "HLS truecolor generation failed for %s: %s",
+                        date, _tc_exc, exc_info=True)
+                    ok = False
                 if ok:
                     self.truecolor_images_by_date[date] = truecolor_file
                 else:

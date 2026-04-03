@@ -143,14 +143,18 @@ def main():
 
     try:
         nlcd_filedir = config['nlcd']['nlcd_filedir']
-        nlcd_filename = config['nlcd']['nlcd_filename'] 
+        nlcd_filename = config['nlcd']['nlcd_filename']
 
-        if nlcd_filedir[:4] == "fhba":
-            nlcd_input_file = importlib.resources.files(nlcd_filedir.replace("/",".")) / nlcd_filename
-        else:
-            nlcd_input_file = os.path.join(nlcd_filedir, nlcd_filename)
-    except ModuleNotFoundError as e:
-        raise FileNotFoundError("Could not find NLCD input file. Please ensure that the file 'Annual_NLCD_LndCov' file is located in the 'appdata/annual_nlcd' directory of the 'fhba.app' package.") from e
+        # Resolve nlcd_filedir relative to the fhba/app package directory so
+        # that paths work regardless of the current working directory.
+        _app_dir = importlib.resources.files('fhba') / 'app'
+        nlcd_input_file = _app_dir / nlcd_filedir / nlcd_filename
+    except Exception as e:
+        raise FileNotFoundError(
+            "Could not find NLCD input file. Please ensure that the "
+            "'Annual_NLCD_LndCov' file is located in the "
+            "'appdata/annual_nlcd' directory of the 'fhba.app' package."
+        ) from e
 
     print("Reading NLCD data and clipping to spatial extent defined in config.yaml...")
 
@@ -161,7 +165,7 @@ def main():
     y0 = config['spatial']['min_lat']
     y1 = config['spatial']['max_lat']
 
-    output_filename = importlib.resources.files(nlcd_filedir.replace("/",".")) / f"NLCD_LandMask_{spatial_name}.tif"
+    output_filename = _app_dir / nlcd_filedir / f"NLCD_LandMask_{spatial_name}.tif"
 
     print(f"Opening NLCD file: {nlcd_input_file}")
     nlcd = rxr.open_rasterio(nlcd_input_file).isel(band=0)
