@@ -748,8 +748,22 @@ class GranuleManager:
                 except Exception:
                     pass
             if _nc_ok:
-                print(f"Preprocessing already completed for this date. Skipping preprocessing step.")
-                return
+                # Also verify the truecolor preview exists — if it is missing
+                # (e.g. first-run generation failed silently) we must NOT skip
+                # preprocessing, because we need hls_ds to regenerate it.
+                _png_name = (
+                    f"{self.satellite_name.replace('-', '')}_"
+                    f"{(self.instrument or '').lower()}_"
+                    f"{self.spatial_name}_truecolor_{date}.png"
+                )
+                _tc_check = os.path.join(self.truecolor_img_dir, _png_name)
+                if os.path.exists(_tc_check):
+                    print(f"Preprocessing already completed for this date. Skipping preprocessing step.")
+                    return
+                else:
+                    logger.info(
+                        "NC exists for %s but truecolor is missing — "
+                        "falling through to regenerate preview.", date)
             else:
                 logger.warning(
                     "processing_status is True for %s but NC is missing or "
