@@ -1061,8 +1061,36 @@ class GranuleManager:
             print(f"Download error for date {date}. Cannot preprocess granules.")
             return
         if not granule_files:
-            print(f"No granules available for date {date}. Skipping preprocessing.")
-            return
+            # For Landsat (HLS) the state may have recorded an empty list even
+            # though .tif files are present on disk — this happens when the
+            # earthaccess search returned 0 results (e.g. version/collection
+            # mismatch) but the files were already there from a prior run or
+            # were placed manually.  Recover by scanning raw_data_dir for any
+            # HLS .tif whose filename contains the YYYYDOY string for this date.
+            if self.instrument == 'landsat' and os.path.isdir(self.raw_data_dir):
+                _d = datetime.strptime(date, '%Y-%m-%d')
+                _date_pat = f"{_d.year}{_d.timetuple().tm_yday:03d}"
+                _recovered = sorted([
+                    os.path.join(self.raw_data_dir, f)
+                    for f in os.listdir(self.raw_data_dir)
+                    if _date_pat in f and f.endswith('.tif')
+                ])
+                if _recovered:
+                    logger.info(
+                        "Recovered %d HLS files from disk for %s "
+                        "(state had empty granule list).", len(_recovered), date)
+                    self.raw_granules_by_date[date] = _recovered
+                    granule_files = _recovered
+                    cloud_mask_files = [
+                        f for f in _recovered if 'Fmask' in os.path.basename(f)
+                    ]
+                    self.raw_cloud_mask_granules_by_date[date] = cloud_mask_files
+                else:
+                    print(f"No granules available for date {date}. Skipping preprocessing.")
+                    return
+            else:
+                print(f"No granules available for date {date}. Skipping preprocessing.")
+                return
 
         nc_file_exists = os.path.exists(nc_file)
         cloud_mask_nc_file_exists = os.path.exists(cloud_mask_nc_file)
@@ -1465,17 +1493,19 @@ class GranuleManager:
 
     def _cmr_search_kwargs(self, day_night_flag='day'):
         """Return the CMR keyword arguments appropriate for this instrument.
-        HLS (Landsat) granules are not tagged with a DayNightFlag in CMR, so
-        filtering by that field returns no results. The CMR instrument name
-        for HLS is 'OLI', not 'LANDSAT'.
+        VIIRS and MODIS granules are tagged with platform, instrument, and
+        DayNightFlag in CMR and benefit from those filters.
+        HLS (Landsat) granules are in a Landsat-only collection (HLSL30) so
+        platform/instrument filters are redundant, and CMR does not reliably
+        populate those fields for HLS — omitting them avoids zero-result searches.
         """
+        if self.instrument == 'landsat':
+            return {}
         kwargs = dict(
             platform=self.satellite_name.upper(),
             instrument=self._CMR_INSTRUMENT.get(self.instrument, self.instrument.upper()),
+            day_night_flag=day_night_flag,
         )
-        # Only VIIRS and MODIS granules carry a DayNightFlag in CMR.
-        if self.instrument in ('viirs', 'modis'):
-            kwargs['day_night_flag'] = day_night_flag
         return kwargs
 
     def search_granules(self, date, day_night_flag='day'):
@@ -1483,8 +1513,17 @@ class GranuleManager:
         if date not in self.download_status:
             raise ValueError(f"Date {date} is outside the defined date range for this GranuleManager of {self.start_date} to {self.end_date}.")
         if self.download_status[date] == True:
-            print(f"Granules for date {date} have already been downloaded. Skipping search step.")
-            return None
+            # Sanity-check: if the status flag is set but the granule list is
+            # empty, the previous run found nothing (e.g. search version mismatch).
+            # Reset so we attempt a fresh search/download.
+            if not self.raw_granules_by_date.get(date):
+                logger.warning(
+                    "download_status is True for %s but granule list is empty "
+                    "— resetting to allow re-download.", date)
+                self.download_status[date] = False
+            else:
+                print(f"Granules for date {date} have already been downloaded. Skipping search step.")
+                return None
 
         logger.info("Beginning search for granules...")
         _version_kwargs = {'version': self.version} if getattr(self, 'version', None) else {}
@@ -1504,8 +1543,14 @@ class GranuleManager:
         if date not in self.download_status:
             raise ValueError(f"Date {date} is outside the defined date range for this GranuleManager of {self.start_date} to {self.end_date}.")
         if self.cloud_mask_download_status[date] == True:
-            print(f"Granules for date {date} have already been downloaded. Skipping search step.")
-            return None
+            if not self.raw_cloud_mask_granules_by_date.get(date):
+                logger.warning(
+                    "cloud_mask_download_status is True for %s but cloud mask "
+                    "granule list is empty — resetting to allow re-download.", date)
+                self.cloud_mask_download_status[date] = False
+            else:
+                print(f"Granules for date {date} have already been downloaded. Skipping search step.")
+                return None
 
         logger.info("Beginning search for cloud mask granules...")
         _cm_version_kwargs = {'version': self.cloud_mask_version} if getattr(self, 'cloud_mask_version', None) else {}
@@ -1796,19 +1841,32 @@ class GranuleManager:
                     "Failed to retrieve MODIS Worldview image for %s on %s. HTTP %d",
                     self.satellite_name, date, response.status_code)
 
-        # ── Landsat 8 / 9 ─────────────────────────────────────────────────────
-        # CMR browse thumbnails are NOT used for Landsat previews. The LPDAAC
-        # browse JPEGs are composite products that may include data from dates
-        # other than the requested date, and the bounding-box intersection test
-        # cannot confirm that the actual Landsat swath covers the study area.
-        # Accurate previews for Landsat are generated from the real downloaded
-        # HLS GeoTIFF files during preprocess_granules() via
-        # _make_hls_truecolor_png(). Stage 2 therefore produces no preview for
-        # Landsat — the preview will appear automatically after granule download.
+        # ── Landsat 8 / 9 via NASA GIBS HLS layer ─────────────────────────────
+        # NASA GIBS carries the HLS L30 (Landsat 8/9) product as a daily WMS
+        # layer: HLS_L30_Nadir_BRDF_Adjusted_Reflectance.  On known orbital
+        # pass dates the swath data is present; on non-pass dates the tile is
+        # empty but Stage 2 already filters to pass dates before calling here.
         elif self.satellite_name in ('Landsat-8', 'Landsat-9'):
-            logger.info(
-                "Landsat preview not generated in Stage 2 — preview will be "
-                "created from actual HLS data after granule download.")
+            layer = 'HLS_L30_Nadir_BRDF_Adjusted_Reflectance'
+            url = (
+                "https://wvs.earthdata.nasa.gov/api/v1/snapshot"
+                f"?REQUEST=GetSnapshot&TIME={date}T00:00:00Z&BBOX={bbox}&CRS=EPSG:4326"
+                f"&LAYERS={layer},Coastlines_15m&WRAP=day,x&FORMAT=image/jpeg"
+                "&WIDTH=1138&HEIGHT=1820&colormaps="
+            )
+            logger.debug("Worldview Landsat URL: %s", url)
+            response = requests.get(url)
+
+            if response.status_code == 200:
+                os.makedirs(os.path.dirname(out_path), exist_ok=True)
+                with open(out_path, 'wb') as f:
+                    f.write(response.content)
+                self.truecolor_images_by_date[date] = out_path
+                logger.info("Landsat HLS preview image retrieved and saved to %s", out_path)
+            else:
+                logger.warning(
+                    "Failed to retrieve Worldview HLS image for %s on %s. HTTP %d",
+                    self.satellite_name, date, response.status_code)
             return
         else:
             logger.warning(
@@ -1911,42 +1969,87 @@ class GranuleManager:
 
         ds = xr.open_dataset(self.processed_granules_by_date[date])
 
-        # Try true_color first, fallback to NIR-Red composite
-        if 'true_color' in ds:
+        r = g = b = None  # will be set by whichever branch matches
+        tc = None         # sentinel: None means true_color branch was not used
+
+        # For Landsat use individual B4/B3/B2 bands (truecolor R/G/B).
+        # For VIIRS/MODIS try the saved true_color composite first, then NIR-Red.
+        if self.instrument == 'landsat' and all(b in ds for b in ('B4', 'B3', 'B2')):
+            red_da = ds['B4'].load()
+            grn_da = ds['B3'].load()
+            blu_da = ds['B2'].load()
+            r = nonlinear_enhancement(255 * red_da.values / 100) / 255
+            g = nonlinear_enhancement(255 * grn_da.values / 100) / 255
+            b = nonlinear_enhancement(255 * blu_da.values / 100) / 255
+            title_str = f"{self.satellite_name} True Color for {date}" if not no_title else ""
+            tc = True  # mark as handled — skip the fallback block
+        elif 'true_color' in ds:
             try:
-                tc = ds['true_color'].load()   # (bands=3, y, x) percent reflectance
-                logger.info(f"true_color dims: {tc.dims}, shape: {tc.shape}, coords: {list(tc.coords)}")
-                # Handle different possible dimension names
+                tc = ds['true_color'].load()
                 if 'bands' in tc.dims:
                     r = nonlinear_enhancement(255 * tc.isel(bands=0).values / 100) / 255
                     g = nonlinear_enhancement(255 * tc.isel(bands=1).values / 100) / 255
                     b = nonlinear_enhancement(255 * tc.isel(bands=2).values / 100) / 255
-                elif tc.dims[0] in ['band', '__xarray_dataarray_variable__']:
-                    # Handle case where first dimension is band but not named 'bands'
-                    r = nonlinear_enhancement(255 * tc.isel({tc.dims[0]: 0}).values / 100) / 255
-                    g = nonlinear_enhancement(255 * tc.isel({tc.dims[0]: 1}).values / 100) / 255
-                    b = nonlinear_enhancement(255 * tc.isel({tc.dims[0]: 2}).values / 100) / 255
                 else:
-                    raise ValueError(f"true_color has unexpected dims {tc.dims}, expected bands in first dimension")
+                    dim0 = tc.dims[0]
+                    r = nonlinear_enhancement(255 * tc.isel({dim0: 0}).values / 100) / 255
+                    g = nonlinear_enhancement(255 * tc.isel({dim0: 1}).values / 100) / 255
+                    b = nonlinear_enhancement(255 * tc.isel({dim0: 2}).values / 100) / 255
                 title_str = f"{self.satellite_name} {self.instrument.upper()} True Color for {date}" if not no_title else ""
             except Exception as tc_exc:
-                logger.warning(f"Error loading true_color for {date}: {tc_exc}. Falling back to NIR-Red.")
+                logger.warning("Error loading true_color for %s: %s. Falling back to NIR-Red.", date, tc_exc)
                 tc = None
         else:
             tc = None
 
         if tc is None:
-            # Fallback: NIR-Red pseudo-colour if true_color not available or failed to load
-            nir = ds[self.nir_red_band_list[0]].load()
-            red = ds[self.nir_red_band_list[1]].load()
-            r = nonlinear_enhancement(255 * nir.values / 100) / 255
-            g = nonlinear_enhancement(255 * red.values / 100) / 255
-            b = np.sqrt(r * g)
-            title_str = f"{self.satellite_name} {self.instrument.upper()} NIR-Red Composite for {date}" if not no_title else ""
+            # NIR-Red fallback for any instrument — covers VIIRS/MODIS that
+            # have no true_color saved, and Landsat NC files that are missing
+            # B2/B3 (e.g. processed before those bands were added to config).
+            nir_band = self.nir_red_band_list[0] if self.nir_red_band_list else None
+            red_band = self.nir_red_band_list[1] if len(self.nir_red_band_list) > 1 else None
+            available = [v for v in ds.data_vars]
+            if nir_band in ds and red_band in ds:
+                nir = ds[nir_band].load()
+                red = ds[red_band].load()
+                r = nonlinear_enhancement(255 * nir.values / 100) / 255
+                g = nonlinear_enhancement(255 * red.values / 100) / 255
+                b = np.sqrt(r * g)
+                title_str = f"{self.satellite_name} {self.instrument.upper()} NIR-Red Composite for {date}" if not no_title else ""
+            elif available:
+                # Last resort: display whatever single band is present as greyscale
+                band = ds[available[0]].load()
+                grey = nonlinear_enhancement(255 * band.values / 100) / 255
+                r = g = b = grey
+                title_str = f"{self.satellite_name} {available[0]} (single band) for {date}" if not no_title else ""
+            else:
+                msg = f"No displayable bands found in NC for {date}. Available: {available}"
+                if in_app:
+                    return msg
+                raise ValueError(msg)
+
+        x_vals = ds.x.values
+        y_vals = ds.y.values
+
+        # Landsat at 30 m over the full AOI produces ~100 M+ pixels — far too
+        # large for the browser to render interactively.  Downsample to at most
+        # MAX_DISPLAY_PX total pixels while preserving the spatial extent so
+        # coordinate-space point clicks remain accurate.
+        MAX_DISPLAY_PX = 2_000_000
+        n_px = r.shape[0] * r.shape[1]
+        if n_px > MAX_DISPLAY_PX:
+            factor = int(np.ceil(np.sqrt(n_px / MAX_DISPLAY_PX)))
+            r = r[::factor, ::factor]
+            g = g[::factor, ::factor]
+            b = b[::factor, ::factor]
+            x_vals = x_vals[::factor]
+            y_vals = y_vals[::factor]
+            logger.info("Downsampled display image by %dx (%d → %d px) for %s.",
+                        factor, n_px, r.shape[0] * r.shape[1], date)
 
         img = np.stack([r, g, b], axis=-1)
 
-        rgb = hv.RGB((ds.x.values, ds.y.values, img)).opts(
+        rgb = hv.RGB((x_vals, y_vals, img)).opts(
             width=500,
             height=1000,
             title=title_str,
@@ -2423,22 +2526,24 @@ class GranuleRegistry:
                 setattr(self, k, data[k])
         self.satellites = {sat: GranuleManager().from_dict(data['satellites'][sat]) for sat in data['satellites']}
 
-        # Guard: recover empty full_band_list from current config
+        # Always sync full_band_list from the current config — the saved JSON
+        # may reflect an older config (e.g. before new bands were added).
+        # Config is the source of truth for which bands to load.
         _band_list_by_instrument = {
             'viirs': getattr(self, 'viirs_full_band_list', None) or getattr(self, 'viirs_band_list', None) or [],
             'modis': getattr(self, 'modis_full_band_list', None) or getattr(self, 'modis_band_list', None) or [],
             'landsat': getattr(self, 'landsat_full_band_list', None) or getattr(self, 'landsat_band_list', None) or [],
         }
         for gm in self.satellites.values():
-            if not getattr(gm, 'full_band_list', None):
-                instr = getattr(gm, 'instrument', '')
-                recovered = _band_list_by_instrument.get(instr, [])
-                if recovered:
-                    logger.warning(
-                        "GranuleManager for %s had empty full_band_list; "
-                        "recovering from registry config: %s",
-                        getattr(gm, 'satellite_name', '?'), recovered)
-                    gm.full_band_list = recovered
+            instr = getattr(gm, 'instrument', '')
+            current = _band_list_by_instrument.get(instr, [])
+            if current:
+                existing = getattr(gm, 'full_band_list', None) or []
+                if existing != current:
+                    logger.info(
+                        "Updating full_band_list for %s from config: %s → %s",
+                        getattr(gm, 'satellite_name', '?'), existing, current)
+                gm.full_band_list = current
         return self
 
     def __getitem__(self, satellite_name):

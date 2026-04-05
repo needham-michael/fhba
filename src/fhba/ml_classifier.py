@@ -85,6 +85,17 @@ def classify_pixels_ml(
                 df_userpts['x'] = x
                 df_userpts['y'] = y
 
+            # Reproject land mask to match the processed NC grid if resolutions differ
+            # (e.g. land mask built at shared VIIRS grid, NC at native 30 m Landsat).
+            _ref_var = list(ds_processed.data_vars)[0]
+            _ref_da  = ds_processed[_ref_var]
+            if lcmask.dims.get('x') != ds_processed.dims.get('x') or \
+               lcmask.dims.get('y') != ds_processed.dims.get('y'):
+                import rioxarray as _rxr
+                lc_da = lcmask['band_data'].rio.write_crs(3857)
+                lc_reproj = lc_da.rio.reproject_match(_ref_da.rio.write_crs(3857))
+                lcmask = xr.Dataset({'band_data': lc_reproj})
+
             if cldmask_nc is not None:
                 cldmask = get_cloudmask(cldmask_nc)
             else:
@@ -92,8 +103,6 @@ def classify_pixels_ml(
 
             try:
                 daily_mask = (lcmask * cldmask).band_data
-                daily_mask = xr.DataArray(
-                    data=daily_mask, coords=cldmask.coords, dims=cldmask.dims)
             except ValueError:
                 logger.error(
                     "daily_mask computation failed. lcmask=%s  cldmask=%s", lcmask, cldmask)
@@ -136,13 +145,20 @@ def classify_pixels_ml(
                 Xunb['dnbr'] = [float(dnbr_array.sel(x=x, y=y, method='nearest'))
                                 for x, y in zip(x_unburned, y_unburned)]
 
+            # NaN and inf pixels (swath edges, zero-denominator index values)
+            # must be excluded — sklearn raises ValueError on both.
+            nodata_mask = (Xfull.isnull() | np.isinf(Xfull)).any(axis=1)
+            Xfull_clean = Xfull.fillna(0).replace([np.inf, -np.inf], 0)
+            Xbrn = Xbrn.fillna(0).replace([np.inf, -np.inf], 0)
+            Xunb = Xunb.fillna(0).replace([np.inf, -np.inf], 0)
+
             X_train = pd.concat([Xbrn, Xunb], ignore_index=True)
             y_train = np.array([1] * len(Xbrn) + [0] * len(Xunb))
 
             # ── Scale features ─────────────────────────────────────────────────
             scaler = StandardScaler()
             X_train_scaled = scaler.fit_transform(X_train)
-            Xfull_scaled   = scaler.transform(Xfull)
+            Xfull_scaled   = scaler.transform(Xfull_clean)
 
             # ── Train & predict ────────────────────────────────────────────────
             if method == "rf":
@@ -169,8 +185,10 @@ def classify_pixels_ml(
                 method, int(y_pred.sum()), int((y_pred == 0).sum()))
 
             # ── Reshape to 2D and apply masks ──────────────────────────────────
+            # Force no-data pixels to unburned regardless of classifier output
+            y_pred = y_pred.astype(bool) & ~nodata_mask.values
             is_burned = xr.DataArray(
-                y_pred.astype(bool),
+                y_pred,
                 coords={'z': pixel_vector_1d.z}).unstack()
 
             if min_area_pixels > 1:

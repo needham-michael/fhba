@@ -67,11 +67,12 @@ class StageDownloadPreviews(param.Parameterized):
                 truecolor_file = os.path.join(self.gm.truecolor_img_dir, png_name)
 
                 self.gm.retrieve_worldview_image(
-                    date=date, out_path=truecolor_file,overwrite=False
-                    )
-                
-                png_pane.object = truecolor_file
-                png_label.object = f"Preview Image for Date: {date}"
+                    date=date, out_path=truecolor_file, overwrite=False
+                )
+
+                if os.path.exists(truecolor_file):
+                    png_pane.object = truecolor_file
+                    png_label.object = f"Preview Image for Date: {date}"
 
                 self.registry.save_json()
 

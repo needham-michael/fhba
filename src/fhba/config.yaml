@@ -70,7 +70,7 @@ modis:
     start_year: 2000
 
 landsat:
-  full_band_list: ["B4","B5","B6","B7"]  # Red, NIR, SWIR1, SWIR2
+  full_band_list: ["B2","B3","B4","B5","B6","B7"]  # Blue, Green, Red, NIR, SWIR1, SWIR2
   # nir_red_band_list: index 0 = NIR (B5), index 1 = RED (B4)
   nir_red_band_list: ["B5","B4"]
   nbr_bands: ["B5","B7"]   # NIR=B5, SWIR2=B7

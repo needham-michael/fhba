@@ -202,6 +202,19 @@ def classify_pixels_eucl(
             ds_processed = xr.open_dataset(processed_nc)
             df_userpts = pd.read_csv(userpts_csv)
 
+            # If the land mask was built at a different resolution than the
+            # processed NC (e.g. land mask at shared VIIRS grid, NC at native
+            # 30 m Landsat resolution), reproject it onto the NC grid so all
+            # arrays share the same x/y coordinates before any arithmetic.
+            _ref_var = list(ds_processed.data_vars)[0]
+            _ref_da  = ds_processed[_ref_var]
+            if lcmask.dims.get('x') != ds_processed.dims.get('x') or \
+               lcmask.dims.get('y') != ds_processed.dims.get('y'):
+                import rioxarray as _rxr
+                lc_da = lcmask['band_data'].rio.write_crs(3857)
+                lc_reproj = lc_da.rio.reproject_match(_ref_da.rio.write_crs(3857))
+                lcmask = xr.Dataset({'band_data': lc_reproj})
+
             if lonlat_to_xy:
                 if area_def is None:
                     raise ValueError(
@@ -218,11 +231,6 @@ def classify_pixels_eucl(
 
             try:
                 daily_mask = (lcmask * cldmask).band_data
-                daily_mask = xr.DataArray(
-                    data=daily_mask,
-                    coords=cldmask.coords,
-                    dims=cldmask.dims
-                )
             except ValueError:
                 logger.error("daily_mask computation failed. lcmask=%s  cldmask=%s", lcmask, cldmask)
                 raise
@@ -263,10 +271,19 @@ def classify_pixels_eucl(
                 Xbrn['dnbr'] = brn_dnbr
                 Xunb['dnbr'] = unb_dnbr
 
-            dist2brn = np.mean(euclidean_distances(X=Xfull, Y=Xbrn), axis=1)
-            dist2unb = np.mean(euclidean_distances(X=Xfull, Y=Xunb), axis=1)
+            # NaN and inf pixels (swath edges, no-data areas, zero-denominator
+            # index values) must be excluded — sklearn raises ValueError on both.
+            # Track them so they can be forced to unburned in the output.
+            nodata_mask = (Xfull.isnull() | np.isinf(Xfull)).any(axis=1)
+            Xfull_clean = Xfull.fillna(0).replace([np.inf, -np.inf], 0)
+            Xbrn = Xbrn.fillna(0).replace([np.inf, -np.inf], 0)
+            Xunb = Xunb.fillna(0).replace([np.inf, -np.inf], 0)
 
-            Xfull['isBurned'] = dist2brn < dist2unb
+            dist2brn = np.mean(euclidean_distances(X=Xfull_clean, Y=Xbrn), axis=1)
+            dist2unb = np.mean(euclidean_distances(X=Xfull_clean, Y=Xunb), axis=1)
+
+            # Force no-data pixels to unburned regardless of distance result
+            Xfull['isBurned'] = (dist2brn < dist2unb) & ~nodata_mask.values
 
             # Confidence = margin between unburned distance and burned distance.
             # Positive → confidently burned; negative → confidently unburned.
