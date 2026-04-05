@@ -141,6 +141,18 @@ class StageDownloadGranules(param.Parameterized):
 
             df_dl = df[df['user_categorization'].isin(checkbox_group.value)]
 
+            # For Landsat, restrict to known orbital pass dates only so we
+            # don't waste API calls on days where no swath crosses the area.
+            known_pass_dates = self.gm.get_known_pass_dates()
+            if known_pass_dates is not None:
+                before = len(df_dl)
+                df_dl = df_dl[df_dl['date'].isin(known_pass_dates)]
+                skipped = before - len(df_dl)
+                if skipped:
+                    terminal.write(
+                        f"Landsat pass filter: skipping {skipped} non-pass dates "
+                        f"({len(df_dl)} known pass dates remain).\n")
+
             if len(df_dl) == 0:
                 pn.state.notifications.warning(
                     "No granules to download for selected categories.")

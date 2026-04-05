@@ -23,6 +23,7 @@ dependencies = [
     "pyarrow>=23.0.1",
     "pycoast>=1.8.0",
     "pydecorate",
+    "pyhdf>=0.11.6",
     "pykdtree>=1.4.3",
     "pyresample>=1.35.0",
     "pyspectral>=0.14.1",

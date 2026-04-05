@@ -36,7 +36,28 @@ class StageDownloadPreviews(param.Parameterized):
 
         def download_images(event):
 
-            date_range = pd.date_range(date_range_slider.value[0], date_range_slider.value[1],freq='1D')
+            full_date_range = pd.date_range(date_range_slider.value[0], date_range_slider.value[1], freq='1D')
+
+            # Filter out future dates — Worldview API cannot provide data for future dates
+            today = pd.Timestamp.today().normalize()
+            full_date_range = full_date_range[full_date_range <= today]
+            
+            if len(full_date_range) == 0:
+                pn.state.notifications.warning(
+                    "No valid dates to download. Date range contains only future dates.")
+                return
+
+            # For Landsat, only iterate known orbital pass dates; previews on
+            # other days would be empty anyway (retrieve_worldview_image returns
+            # immediately for Landsat without creating a file).
+            known_pass_dates = self.gm.get_known_pass_dates(
+                start_date=full_date_range[0],
+                end_date=full_date_range[-1],
+            )
+            if known_pass_dates is not None:
+                date_range = pd.DatetimeIndex(known_pass_dates)
+            else:
+                date_range = full_date_range
 
             for date in progress_bar(date_range, desc="Downloading Preview Images"):
 

@@ -151,7 +151,7 @@ class StageClassify(param.Parameterized):
 
             try:
                 polys_areamask.data = None
-                rgb = self.gm.get_nir_red_hv_rgb(date=date, in_app=True, no_title=True)
+                rgb = self.gm.get_truecolor_hv_rgb(date=date, in_app=True, no_title=True)
 
             except Exception as e:
                 pn.state.notifications.error(
@@ -184,7 +184,7 @@ class StageClassify(param.Parameterized):
             pre_date = pre_fire_date_selector.value
             if pre_date and pre_date != 'None':
                 try:
-                    pre_rgb = self.gm.get_nir_red_hv_rgb(date=pre_date, in_app=True, no_title=True)
+                    pre_rgb = self.gm.get_truecolor_hv_rgb(date=pre_date, in_app=True, no_title=True)
                     if pre_rgb and not isinstance(pre_rgb, str):
                         pre_fire_pane.object = pre_rgb
                         pre_fire_pane.visible = True

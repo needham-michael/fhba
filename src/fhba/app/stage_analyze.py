@@ -95,7 +95,7 @@ class StageAnalyze(param.Parameterized):
             loading.name = 'Loading Image...'
 
             try:
-                rgb = self.gm.get_nir_red_hv_rgb(date=date, in_app=True, include_counties=True)
+                rgb = self.gm.get_truecolor_hv_rgb(date=date, in_app=True, include_counties=True)
                 # Reset points to empty when loading a new image
                 points_burned.data   = pd.DataFrame({'x': [], 'y': []})
                 points_unburned.data = pd.DataFrame({'x': [], 'y': []})
@@ -150,7 +150,7 @@ class StageAnalyze(param.Parameterized):
             loading.name = 'Loading Image...'
 
             try:
-                rgb = self.gm.get_nir_red_hv_rgb(date=date, in_app=True, include_counties=True)
+                rgb = self.gm.get_truecolor_hv_rgb(date=date, in_app=True, include_counties=True)
             except Exception as e:
                 pn.state.notifications.error(
                     f"Error loading image for date {date}: {str(e)}", duration=6000)

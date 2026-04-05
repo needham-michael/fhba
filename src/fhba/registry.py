@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import re
+import sys
 import tempfile
 import time
 from datetime import datetime, timedelta
@@ -13,6 +14,34 @@ import warnings
 import yaml
 import earthaccess
 import holoviews as hv
+
+# ── Windows HDF4 DLL bootstrap (required for pyhdf / Satpy modis_l1b reader) ──
+# pyhdf is distributed without bundled HDF4 DLLs on Windows.  The DLLs we need
+# (hdf.dll, mfhdf.dll and their transitive dependencies) are already present in
+# the netcdf4.libs wheel package that ships with the netCDF4 Python package.
+# We copy them once (plain names alongside the hashed originals) and add the
+# pyhdf package directory to Python's DLL search path so the import works.
+if sys.platform == "win32":
+    try:
+        import site as _site
+        _sp = _site.getsitepackages()
+        _site_pkgs = next((p for p in _sp if "site-packages" in p), _sp[-1] if _sp else None)
+        if _site_pkgs:
+            _nc4_libs = os.path.join(_site_pkgs, "netcdf4.libs")
+            _pyhdf_dir = os.path.join(_site_pkgs, "pyhdf")
+            if os.path.isdir(_nc4_libs) and os.path.isdir(_pyhdf_dir):
+                import shutil as _shutil, re as _re2
+                for _dll in os.listdir(_nc4_libs):
+                    if not _dll.endswith(".dll"):
+                        continue
+                    _plain = _re2.sub(r"-[0-9a-f]{32}", "", _dll)
+                    _dst = os.path.join(_pyhdf_dir, _plain)
+                    if not os.path.exists(_dst):
+                        _shutil.copy2(os.path.join(_nc4_libs, _dll), _dst)
+                os.add_dll_directory(_pyhdf_dir)
+    except Exception:
+        pass  # non-fatal — MODIS reader simply won't be available if this fails
+
 import geopandas as gpd
 import numpy as np
 import pandas as pd
@@ -24,6 +53,193 @@ from fhba.eucl_classifier import classify_pixels_eucl
 from fhba.image import nonlinear_enhancement
 
 logger = logging.getLogger(__name__)
+
+# ── MOD09GA cloud shadow extraction ──────────────────────────────────────────
+def _resample_mod09ga_shadow(mod09ga_files, satpy_area_def):
+    """Extract cloud shadow flag from MOD09GA/MYD09GA State_1km QA band.
+
+    MOD09GA State_1km is a 16-bit QA word on the MODIS sinusoidal 1-km grid.
+      Bit 2 = cloud shadow (1 = shadow present)
+
+    Each file covers one MODIS sinusoidal tile (e.g. h10v05). Tile coordinates
+    are parsed from the filename and used to build a pyresample AreaDefinition
+    for the sinusoidal grid, then resampled to satpy_area_def.
+
+    Returns xr.DataArray (1=shadow, 0=no shadow, NaN=no data) or None.
+    """
+    from pyhdf.SD import SD, SDC
+    from pyresample.geometry import AreaDefinition
+    from pyresample.kd_tree import resample_nearest
+    import re as _re
+
+    # MODIS sinusoidal grid constants (WGS84 sphere)
+    SINU_PROJ  = ('+proj=sinu +lon_0=0 +x_0=0 +y_0=0 '
+                  '+a=6371007.181 +b=6371007.181 +units=m +no_defs')
+    TILE_SIZE  = 1111950.519667   # metres per tile
+    PIXEL_SIZE = TILE_SIZE / 1200 # ~926.6 m at 1 km
+    ORIGIN_X   = -20015109.354    # left edge of tile h=0
+    ORIGIN_Y   =  10007554.677    # top  edge of tile v=0
+
+    shadow_arrays = []
+    for path in mod09ga_files:
+        bn = os.path.basename(path)
+        if not (bn.startswith('MOD09GA') or bn.startswith('MYD09GA')):
+            continue
+        m = _re.search(r'h(\d{2})v(\d{2})', bn)
+        if not m:
+            logger.warning("Could not parse tile from %s — skipping.", bn)
+            continue
+        htile, vtile = int(m.group(1)), int(m.group(2))
+
+        try:
+            hdf = SD(path, SDC.READ)
+            # Find the state_1km dataset — name varies by collection
+            state_name = None
+            for name in hdf.datasets():
+                if 'state' in name.lower() and '1km' in name.lower():
+                    state_name = name
+                    break
+            if state_name is None:
+                logger.warning("No state_1km dataset in %s. Available: %s",
+                               bn, list(hdf.datasets().keys()))
+                hdf.end()
+                continue
+            state = hdf.select(state_name).get()   # (1200, 1200) uint16
+            hdf.end()
+        except Exception as exc:
+            logger.warning("Could not read MOD09GA %s: %s", bn, exc)
+            continue
+
+        shadow = ((state.astype(np.uint16) >> 2) & 1).astype(np.float32)
+
+        # Build sinusoidal AreaDefinition for this tile
+        ul_x = ORIGIN_X + htile * TILE_SIZE
+        ul_y = ORIGIN_Y - vtile * TILE_SIZE
+        area_extent = (ul_x, ul_y - TILE_SIZE, ul_x + TILE_SIZE, ul_y)
+        tile_area = AreaDefinition(
+            f'modis_sinu_h{htile:02d}v{vtile:02d}',
+            'MODIS Sinusoidal', 'sinu',
+            SINU_PROJ, 1200, 1200, area_extent,
+        )
+
+        resampled = resample_nearest(
+            tile_area, shadow, satpy_area_def,
+            radius_of_influence=2000, fill_value=np.nan,
+        )
+        shadow_arrays.append(resampled)
+
+    if not shadow_arrays:
+        return None
+
+    # Merge tiles: any tile flagging shadow wins
+    combined = np.nanmax(np.stack(shadow_arrays, axis=0), axis=0)
+    x_coords, y_coords = satpy_area_def.get_proj_vectors()
+    return xr.DataArray(
+        combined.astype(np.float32),
+        dims=['y', 'x'],
+        coords={'y': y_coords, 'x': x_coords},
+    )
+
+
+# ── MODIS cloud mask extraction (direct from HDF, bypassing Satpy) ────────────
+def _resample_modis_cloud_fields(mod35_hdf_files, mod03_hdf_files, satpy_area_def):
+    """Extract cloud quality and shadow flag from MOD35_L2 HDF files.
+
+    Satpy's modis_l2 reader writes the Cloud Mask Flag (bit 0 = determined/not)
+    rather than the cloud quality determination field, making its cloud_mask
+    output unreliable.  This function reads directly from the raw HDF and
+    resamples both fields using MOD03 1-km lat/lon.
+
+    MOD35 Cloud_Mask SDS byte 0 (index 0):
+      bits 2-1 = Unobstructed FOV Quality: 00=Cloudy 01=Uncertain 10=ProbClear 11=Clear
+    MOD35 Cloud_Mask SDS byte 1 (index 1):
+      bit 2 = Shadow found (cloud shadow or terrain shadow)
+
+    Returns a dict with keys 'cloud_mask' and 'cloud_shadow', each an
+    xr.DataArray on the target grid, or None if extraction fails entirely.
+    cloud_mask values: 0=Cloudy, 1=Uncertain, 2=Probably Clear, 3=Confident Clear
+    cloud_shadow values: 0=no shadow, 1=shadow found
+    """
+    from pyhdf.SD import SD, SDC
+    from pyresample.geometry import SwathDefinition
+    from pyresample.kd_tree import resample_nearest
+
+    import re as _re
+    mod03_index = {}
+    for p in mod03_hdf_files:
+        m = _re.search(r'(A\d{7}\.\d{4})', os.path.basename(p))
+        if m:
+            mod03_index[m.group(1)] = p
+
+    # Deduplicate MOD35 files by acquisition time, preferring standard over NRT.
+    _mod35_by_time: dict = {}
+    for path in mod35_hdf_files:
+        bn = os.path.basename(path)
+        if not (bn.startswith('MOD35') or bn.startswith('MYD35')):
+            continue
+        m = _re.search(r'(A\d{7}\.\d{4})', bn)
+        if not m:
+            continue
+        key = m.group(1)
+        existing = _mod35_by_time.get(key)
+        if existing is None:
+            _mod35_by_time[key] = path
+        else:
+            if '.NRT.' in os.path.basename(existing) and '.NRT.' not in bn:
+                _mod35_by_time[key] = path
+
+    cloud_list, shadow_list, lat_list, lon_list = [], [], [], []
+    for path in _mod35_by_time.values():
+        bn = os.path.basename(path)
+        m = _re.search(r'(A\d{7}\.\d{4})', bn)
+        if not m:
+            continue
+        geo_path = mod03_index.get(m.group(1))
+        if geo_path is None:
+            logger.warning("No MOD03 match for %s — skipping cloud field extraction.", bn)
+            continue
+        try:
+            h35 = SD(path, SDC.READ)
+            cm  = h35.select('Cloud_Mask').get()   # (6, nscans, nsamps) int8
+            h35.end()
+            h03 = SD(geo_path, SDC.READ)
+            lat = h03.select('Latitude').get()
+            lon = h03.select('Longitude').get()
+            h03.end()
+            byte0 = cm[0].astype(np.uint8)
+            cloud_det = ((byte0 >> 1) & 0b11).astype(np.float32)  # bits 2-1
+            byte1  = cm[1].astype(np.uint8)
+            shadow = ((byte1 >> 2) & 1).astype(np.float32)        # bit 2
+            if cloud_det.shape != lat.shape:
+                logger.warning("Shape mismatch for %s: cloud=%s lat=%s — skipping.",
+                               bn, cloud_det.shape, lat.shape)
+                continue
+            cloud_list.append(cloud_det)
+            shadow_list.append(shadow)
+            lat_list.append(lat)
+            lon_list.append(lon)
+        except Exception as exc:
+            logger.warning("Could not read cloud fields from %s: %s", path, exc)
+
+    if not cloud_list:
+        return None
+
+    cloud_all  = np.vstack(cloud_list)
+    shadow_all = np.vstack(shadow_list)
+    lat_all    = np.vstack(lat_list)
+    lon_all    = np.vstack(lon_list)
+
+    swath = SwathDefinition(lons=lon_all, lats=lat_all)
+    x_coords, y_coords = satpy_area_def.get_proj_vectors()
+
+    def _resamp(data):
+        r = resample_nearest(swath, data, satpy_area_def,
+                             radius_of_influence=2000, fill_value=np.nan)
+        return xr.DataArray(r.astype(np.float32), dims=['y', 'x'],
+                            coords={'y': y_coords, 'x': x_coords})
+
+    return {'cloud_mask': _resamp(cloud_all), 'cloud_shadow': _resamp(shadow_all)}
+
 
 # ── HLS (Harmonized Landsat Sentinel-2) helpers ───────────────────────────────
 # Satpy has no reader for the individual-band GeoTIFF files produced by the
@@ -215,12 +431,16 @@ class GranuleManager:
                  truecolor_images_by_date=None, full_band_list=None, nir_red_band_list=None,
                  userpts_dir=None, cloud_mask_short_name=None, userpts_by_date=None,
                  burnmasks_by_date=None, burnmask_dir=None,
-                 nbr_bands=None, ndvi_bands=None):
+                 nbr_bands=None, ndvi_bands=None,
+                 pass_anchor_dates=None, pass_repeat_days=16,
+                 version=None, cloud_mask_version=None):
 
         self.satellite_name = satellite_name
         self.instrument = instrument.lower() if instrument is not None else None
         self.short_name_list = short_name_list if short_name_list is not None else []
         self.cloud_mask_short_name = cloud_mask_short_name
+        self.version = version
+        self.cloud_mask_version = cloud_mask_version
         self.start_date = start_date
         self.end_date = end_date
         self.raw_data_dir = raw_data_dir
@@ -239,6 +459,9 @@ class GranuleManager:
         self.nir_red_band_list = nir_red_band_list if nir_red_band_list is not None else []
         self.nbr_bands = nbr_bands  # [nir_band, swir_band] or None
         self.ndvi_bands = ndvi_bands  # [nir_band, red_band] or None
+        # Landsat orbital pass filtering — None for non-Landsat instruments
+        self.pass_anchor_dates = pass_anchor_dates  # list of 'YYYY-MM-DD' strings
+        self.pass_repeat_days = int(pass_repeat_days) if pass_repeat_days else 16
 
         if self.instrument not in ['viirs', 'modis', 'landsat', None]:
             raise ValueError(f"Instrument {instrument} not recognized. Valid options are 'viirs', 'modis', or 'landsat'.")
@@ -374,9 +597,16 @@ class GranuleManager:
 
         with xr.open_dataset(cldmask_file) as ds:
             if 'Clear_Sky_Confidence' in ds:
-                # VIIRS / MODIS: continuous confidence score in [0, 1]
+                # VIIRS: continuous confidence score in [0, 1]
                 conf = ds['Clear_Sky_Confidence']
                 clear_frac = float((conf >= clear_threshold).mean())
+            elif 'cloud_mask' in ds:
+                # MODIS MOD35/MYD35 L2 cloud mask (Satpy modis_l2 reader):
+                # 2-bit integer per pixel extracted from the MOD35 byte-field:
+                #   0 = Cloudy, 1 = Uncertain, 2 = Probably Clear, 3 = Confident Clear
+                # "Clear" = Probably Clear or Confident Clear (value >= 2).
+                cld = ds['cloud_mask'].fillna(0).astype(int)
+                clear_frac = float((cld >= 2).mean())
             elif 'Fmask' in ds:
                 # Landsat HLS Fmask uint8 bit-field:
                 # bit 1 = cloud, bit 2 = adjacent cloud, bit 3 = cloud shadow
@@ -385,8 +615,9 @@ class GranuleManager:
                 clear_frac = float(((fmask & 0x0E) == 0).mean())
             else:
                 logger.warning(
-                    "Cloud mask file for %s has neither 'Clear_Sky_Confidence' "
-                    "nor 'Fmask'; skipping categorization.", date)
+                    "Cloud mask file for %s has no recognised cloud variable "
+                    "('Clear_Sky_Confidence', 'cloud_mask', or 'Fmask'); "
+                    "skipping categorization.", date)
                 return "Uncategorized"
 
         if clear_frac >= 0.90:
@@ -758,8 +989,15 @@ class GranuleManager:
                 )
                 _tc_check = os.path.join(self.truecolor_img_dir, _png_name)
                 if os.path.exists(_tc_check):
-                    print(f"Preprocessing already completed for this date. Skipping preprocessing step.")
-                    return
+                    # Also check the cloud mask NC exists — if missing, fall
+                    # through so it gets regenerated (e.g. after a fix).
+                    _cldmask_check = os.path.join(
+                        self.processed_data_dir,
+                        f"{self.satellite_name}_{self.spatial_name}_cloud_mask_{date}.nc"
+                    )
+                    if os.path.exists(_cldmask_check):
+                        print(f"Preprocessing already completed for this date. Skipping preprocessing step.")
+                        return
                 else:
                     logger.info(
                         "NC exists for %s but truecolor is missing — "
@@ -775,6 +1013,38 @@ class GranuleManager:
 
         granule_files = self.raw_granules_by_date[date]
         cloud_mask_files = self.raw_cloud_mask_granules_by_date[date]
+
+        # Filter to only HDF files for MODIS (Satpy modis_l1b reader doesn't handle NetCDF)
+        if self.instrument == 'modis':
+            granule_files = [f for f in granule_files if f.endswith('.hdf')]
+            cloud_mask_files = [f for f in cloud_mask_files if f.endswith('.hdf')]
+
+            # Separate MOD09GA/MYD09GA files — Satpy's modis_l1b reader cannot
+            # handle them; they are used separately for cloud shadow extraction.
+            mod09ga_files = [f for f in granule_files
+                             if os.path.basename(f).startswith(('MOD09GA', 'MYD09GA'))]
+            granule_files  = [f for f in granule_files
+                              if not os.path.basename(f).startswith(('MOD09GA', 'MYD09GA'))]
+
+            # Deduplicate granule files by product + acquisition time, preferring
+            # standard (.061. without NRT) over NRT. Mixed NRT+standard files for
+            # the same granule cause Satpy to stack arrays with mismatched scan-line
+            # counts, producing a dask chunk shape error.
+            import re as _re_gf
+            _gf_dedup: dict = {}
+            for _f in granule_files:
+                _bn = os.path.basename(_f)
+                _m = _re_gf.search(r'((?:MOD|MYD)\d+\w*)\.(A\d{7}\.\d{4})', _bn)
+                if _m:
+                    _key = (_m.group(1), _m.group(2))  # (product, AYYYYDDD.HHMM)
+                    _existing = _gf_dedup.get(_key)
+                    if _existing is None:
+                        _gf_dedup[_key] = _f
+                    elif '.NRT.' in os.path.basename(_existing) and '.NRT.' not in _bn:
+                        _gf_dedup[_key] = _f
+                else:
+                    _gf_dedup[id(_f)] = _f  # keep unmatched files as-is
+            granule_files = list(_gf_dedup.values())
 
         nc_file = os.path.join(
             self.processed_data_dir,
@@ -849,9 +1119,8 @@ class GranuleManager:
                         area_id=self.spatial_name,
                         projection=3857,
                         width=750, height=1500,
-                        area_extent=(self.min_lon, self.min_lat,
-                                     self.max_lon, self.max_lat),
-                        units='degrees',
+                        area_extent=self._webmercator_area_extent(),
+                        units='meters',
                     )
                 print("Loading HLS RGB bands at preview resolution for "
                       "truecolor regeneration...")
@@ -876,10 +1145,11 @@ class GranuleManager:
                 self.truecolor_images_by_date[date] = truecolor_file
             else:
                 try:
+                    _tc_crs = self.satpy_area_def.crs if self.satpy_area_def is not None else None
                     ok = _make_hls_truecolor_png(
                         hls_ds, truecolor_file,
                         county_shp=self.county_shp,
-                        target_crs=self.satpy_area_def.crs)
+                        target_crs=_tc_crs)
                 except Exception as _tc_exc:
                     logger.error(
                         "HLS truecolor generation failed for %s: %s",
@@ -924,9 +1194,10 @@ class GranuleManager:
                 warnings.simplefilter("ignore")
                 # Make a copy so we never mutate self.full_band_list
                 band_list = list(self.full_band_list)
-                if truecolor_file_exists:
-                    if "true_color" not in band_list:
-                        band_list = band_list + ["true_color"]
+                # Always include true_color for Satpy scene loading so it can be
+                # saved to the NetCDF file (used by visualizations)
+                if "true_color" not in band_list:
+                    band_list = band_list + ["true_color"]
                 print(f"Loading bands: {band_list}")
 
                 # Derive the correct Satpy reader name for this instrument.
@@ -948,13 +1219,49 @@ class GranuleManager:
                     self.processed_granules_by_date[date] = nc_file
                     self.update_processing_status(date,True)
                 else:
-                    # Save loaded and reprojected bands to new NetCDF file
+                    # Save loaded and reprojected bands to new NetCDF file.
+                    # For MODIS, Satpy's CF writer defaults to prepending
+                    # "CHANNEL_" to variable names that start with a digit
+                    # (e.g. band '1' → 'CHANNEL_1'), which would mismatch the
+                    # band names used everywhere else in the pipeline.  Pass
+                    # an empty prefix for MODIS so the original numeric names
+                    # ('1','2',…) are preserved directly in the NetCDF file.
+                    _nc_prefix = "" if self.instrument == 'modis' else "CHANNEL_"
                     os.makedirs(self.processed_data_dir,exist_ok=True)
+
+                    # Extract true_color composite as a DataArray to save with the bands
+                    _tc_da = None
+                    try:
+                        _tc = scene_regional['true_color']
+                        if _tc is not None:
+                            # Convert Satpy DataArray to xarray, reshape to (bands, y, x)
+                            _tc_da = xr.DataArray(
+                                _tc.values.transpose(2, 0, 1) if _tc.values.ndim == 3 else _tc.values,
+                                dims=['bands', 'y', 'x'] if _tc.values.ndim == 3 else _tc.dims,
+                                coords={'bands': [0, 1, 2], 'y': _tc.y, 'x': _tc.x} if _tc.values.ndim == 3
+                                       else _tc.coords,
+                                name='true_color'
+                            )
+                    except Exception as _tc_e:
+                        logger.warning("Could not extract true_color composite: %s", _tc_e)
+
                     with warnings.catch_warnings():
                         warnings.simplefilter("ignore") # Ignore satpy warnings
                         scene_regional.save_datasets(
-                            filename=nc_file,writer='cf'
+                            filename=nc_file, writer='cf',
+                            numeric_name_prefix=_nc_prefix,
                         )
+
+                    # Append true_color to the saved NetCDF if extraction succeeded
+                    if _tc_da is not None:
+                        try:
+                            with xr.open_dataset(nc_file) as _ds_tmp:
+                                _ds_with_tc = _ds_tmp.assign({'true_color': _tc_da})
+                                _ds_with_tc.to_netcdf(nc_file)
+                            print("Appended true_color composite to NetCDF file.")
+                        except Exception as _append_e:
+                            logger.warning("Could not append true_color to NetCDF: %s", _append_e)
+
                     self.processed_granules_by_date[date] = nc_file
                     self.update_processing_status(date,True)
 
@@ -987,7 +1294,42 @@ class GranuleManager:
                     if self.instrument == 'landsat':
                         _cld_reader = 'hls_l30'
                         _cld_band = 'Fmask'
+                    elif self.instrument == 'modis':
+                        # MODIS MOD35/MYD35 L2: Satpy exposes the cloud
+                        # determination as 'cloud_mask' (2-bit values 0-3).
+                        # modis_l2 reader requires MOD03 geolocation files to
+                        # properly georeference MOD35 data; include them from
+                        # the already-downloaded reflectance granules.
+                        _cld_reader = 'modis_l2'
+                        _cld_band = 'cloud_mask'
+                        # Deduplicate MOD35 files: for each acquisition time
+                        # (AYYYYDDD.HHMM) keep only the standard collection
+                        # (.061.) and discard NRT duplicates. Mixed NRT+standard
+                        # granules cause Satpy to stack arrays with mismatched
+                        # scan-line counts, producing a dask chunk shape error.
+                        import re as _re2
+                        _mod35_dedup: dict = {}
+                        _non_mod35 = []
+                        for _f in cloud_mask_files:
+                            _bn = os.path.basename(_f)
+                            if _bn.startswith(('MOD35', 'MYD35')):
+                                _m = _re2.search(r'(A\d{7}\.\d{4})', _bn)
+                                if _m:
+                                    _key = _m.group(1)
+                                    _existing = _mod35_dedup.get(_key)
+                                    if _existing is None:
+                                        _mod35_dedup[_key] = _f
+                                    elif '.NRT.' in os.path.basename(_existing) and '.NRT.' not in _bn:
+                                        _mod35_dedup[_key] = _f
+                                else:
+                                    _non_mod35.append(_f)
+                            else:
+                                _non_mod35.append(_f)
+                        cloud_mask_files = list(_mod35_dedup.values()) + _non_mod35
+                        geo_files = [f for f in granule_files if os.path.basename(f).startswith(('MOD03', 'MYD03'))]
+                        cloud_mask_files = cloud_mask_files + geo_files
                     else:
+                        # VIIRS L2 cloud mask: continuous confidence in [0, 1]
                         _cld_reader = f"{self.instrument}_l2"
                         _cld_band = 'Clear_Sky_Confidence'
                     cloud_mask_scene_full = Scene(filenames=cloud_mask_files, reader=_cld_reader)
@@ -998,6 +1340,39 @@ class GranuleManager:
                     cloud_mask_scene_regional.save_datasets(
                         filename=cloud_mask_nc_file, writer='cf'
                     )
+                    # For MODIS:
+                    # 1. Replace Satpy's cloud_mask (which outputs the determined/not
+                    #    flag rather than the quality field) with values extracted
+                    #    directly from the raw MOD35 HDF.
+                    # 2. Append cloud_shadow from MOD09GA State_1km bit 2, which is
+                    #    the authoritative MODIS cloud shadow flag (MOD35 byte 1 bit 2
+                    #    is terrain/snow obstruction, not cloud shadow).
+                    if self.instrument == 'modis':
+                        _mod03_files = [f for f in granule_files
+                                        if os.path.basename(f).startswith(('MOD03', 'MYD03'))
+                                        and f.endswith('.hdf')]
+                        _cloud_fields = _resample_modis_cloud_fields(
+                            cloud_mask_files, _mod03_files, self.satpy_area_def)
+                        _shadow_da = _resample_mod09ga_shadow(
+                            mod09ga_files, self.satpy_area_def)
+                        _updates = {}
+                        if _cloud_fields is not None:
+                            _updates['cloud_mask'] = _cloud_fields['cloud_mask']
+                        if _shadow_da is not None:
+                            _updates['cloud_shadow'] = _shadow_da
+                            print(f"MOD09GA shadow: {float((_shadow_da == 1).mean()) * 100:.1f}% shadow pixels")
+                        if _updates:
+                            try:
+                                _tmp = cloud_mask_nc_file + '.shadow_tmp'
+                                with xr.open_dataset(cloud_mask_nc_file) as _cds:
+                                    _cds2 = _cds.assign(_updates).load()
+                                _cds2.to_netcdf(_tmp)
+                                _cds2.close()
+                                os.replace(_tmp, cloud_mask_nc_file)
+                                print("Patched cloud mask NC with MOD35 cloud_mask and MOD09GA cloud_shadow.")
+                            except Exception as _sh_exc:
+                                logger.warning(
+                                    "Could not patch cloud mask NC: %s", _sh_exc)
                     self.processed_cloud_masks_by_date[date] = cloud_mask_nc_file
                     self.update_processing_status(date, True)
         return
@@ -1040,8 +1415,8 @@ class GranuleManager:
             landcover_mask_file,
             'w',
             driver='GTiff',
-            height=1000,
-            width=500,
+            height=self.satpy_area_def.height,
+            width=self.satpy_area_def.width,
             count=1,
             dtype='int8',
             crs=self.satpy_area_def.crs.to_proj4(),
@@ -1112,11 +1487,13 @@ class GranuleManager:
             return None
 
         logger.info("Beginning search for granules...")
+        _version_kwargs = {'version': self.version} if getattr(self, 'version', None) else {}
         granule_search_results = earthaccess.search_data(
             short_name=self.short_name_list,
             bounding_box=tuple(self.spatial),
             temporal=(date, date),
             **self._cmr_search_kwargs(day_night_flag),
+            **_version_kwargs,
         )
         logger.info("Found %d granules for %s %s on %s.",
                     len(granule_search_results), self.satellite_name, self.instrument.upper(), date)
@@ -1131,11 +1508,13 @@ class GranuleManager:
             return None
 
         logger.info("Beginning search for cloud mask granules...")
+        _cm_version_kwargs = {'version': self.cloud_mask_version} if getattr(self, 'cloud_mask_version', None) else {}
         granule_search_results = earthaccess.search_data(
             short_name=self.cloud_mask_short_name,
             bounding_box=tuple(self.spatial),
             temporal=(date, date),
             **self._cmr_search_kwargs(day_night_flag),
+            **_cm_version_kwargs,
         )
         logger.info("Found %d cloud mask granules for %s %s on %s.",
                     len(granule_search_results), self.satellite_name, self.instrument.upper(), date)
@@ -1342,6 +1721,13 @@ class GranuleManager:
           Landsat imagery; browse thumbnails are retrieved directly from the
           publicly-accessible LPDAAC S3 bucket via a CMR granule search.
         """
+        # Skip future dates — no data available from Worldview for dates beyond today
+        date_obj = pd.Timestamp(date).normalize()
+        today = pd.Timestamp.today().normalize()
+        if date_obj > today:
+            logger.warning("Cannot retrieve preview for future date %s. Skipping retrieval.", date)
+            return
+        
         if os.path.exists(out_path) and not overwrite:
             logger.info("True color image already exists for %s. Skipping retrieval.", date)
             self.truecolor_images_by_date[date] = out_path
@@ -1410,156 +1796,20 @@ class GranuleManager:
                     "Failed to retrieve MODIS Worldview image for %s on %s. HTTP %d",
                     self.satellite_name, date, response.status_code)
 
-        # ── Landsat 8 / 9 via LPDAAC HLS browse images ────────────────────────
+        # ── Landsat 8 / 9 ─────────────────────────────────────────────────────
+        # CMR browse thumbnails are NOT used for Landsat previews. The LPDAAC
+        # browse JPEGs are composite products that may include data from dates
+        # other than the requested date, and the bounding-box intersection test
+        # cannot confirm that the actual Landsat swath covers the study area.
+        # Accurate previews for Landsat are generated from the real downloaded
+        # HLS GeoTIFF files during preprocess_granules() via
+        # _make_hls_truecolor_png(). Stage 2 therefore produces no preview for
+        # Landsat — the preview will appear automatically after granule download.
         elif self.satellite_name in ('Landsat-8', 'Landsat-9'):
-            # The Worldview Snapshot API does not provide daily Landsat imagery.
-            # Instead, retrieve the publicly-hosted browse JPEG for the HLS L30
-            # (Harmonized Landsat Sentinel-2) granule that covers this area.
-            short_name = 'HLSL30'
-            # CMR requires an explicit time range — using just "date,date" misses
-            # granules acquired later in the day. Use a 24-hour window instead.
-            date_end = (datetime.strptime(date, '%Y-%m-%d') + timedelta(days=1)).strftime('%Y-%m-%d')
-            cmr_url = (
-                f"https://cmr.earthdata.nasa.gov/search/granules.json"
-                f"?short_name={short_name}"
-                f"&temporal={date}T00:00:00Z,{date_end}T00:00:00Z"
-                f"&bounding_box={self.min_lon},{self.min_lat},{self.max_lon},{self.max_lat}"
-                f"&page_size=30"
-            )
-            logger.debug("CMR HLS search URL: %s", cmr_url)
-            try:
-                cmr_resp = requests.get(cmr_url, timeout=30)
-            except Exception as exc:
-                logger.warning("CMR search request failed for %s on %s: %s", short_name, date, exc)
-                return
-
-            if cmr_resp.status_code != 200:
-                logger.warning(
-                    "CMR search returned HTTP %d for %s on %s.",
-                    cmr_resp.status_code, short_name, date)
-                return
-
-            entries = cmr_resp.json().get('feed', {}).get('entry', [])
-            if not entries:
-                logger.info("No HLS L30 granules found for %s on %s.", short_name, date)
-                return
-
-            # Select the tile that best covers the area of interest.
-            # Score = polygon_area / (1 + distance²) so that full tiles near
-            # the AOI centre are preferred over partial edge-of-swath tiles.
-            center_lat = (self.min_lat + self.max_lat) / 2.0
-            center_lon = (self.min_lon + self.max_lon) / 2.0
-
-            def _tile_score(entry):
-                """Higher is better: full tiles close to the AOI centre win."""
-                polygons = entry.get('polygons', [])
-                if not polygons or not polygons[0]:
-                    return -1.0
-                coords = list(map(float, polygons[0][0].split()))
-                lats = coords[0::2]
-                lons = coords[1::2]
-                clat = sum(lats) / len(lats)
-                clon = sum(lons) / len(lons)
-                # Approximate bounding-box area of the tile polygon
-                lat_span = max(lats) - min(lats)
-                lon_span = max(lons) - min(lons)
-                area = lat_span * lon_span
-                dist_sq = (clat - center_lat) ** 2 + (clon - center_lon) ** 2
-                return area / (1.0 + dist_sq)
-
-            entries_sorted = sorted(entries, key=_tile_score, reverse=True)
-
-            # Collect browse URLs for ALL tiles (not just the best one) so the
-            # stitched preview covers the full AOI.
-            import io as _io
-            from PIL import Image as _PILImage
-            import matplotlib
-            matplotlib.use('Agg')
-            import matplotlib.pyplot as _plt
-
-            tile_images = []  # list of (lon_min, lon_max, lat_min, lat_max, np.array)
-            for entry in entries_sorted:
-                # Extract tile bounding box from CMR polygon (lat/lon pairs)
-                polygons = entry.get('polygons', [])
-                if not polygons or not polygons[0]:
-                    continue
-                coords = list(map(float, polygons[0][0].split()))
-                lats = coords[0::2]
-                lons = coords[1::2]
-                tile_lon_min, tile_lon_max = min(lons), max(lons)
-                tile_lat_min, tile_lat_max = min(lats), max(lats)
-
-                # Find public browse URL for this tile
-                browse_url = None
-                for link in entry.get('links', []):
-                    href = link.get('href', '')
-                    if (href.startswith('https://') and
-                            href.endswith('.jpg') and
-                            'lp-prod-public' in href):
-                        browse_url = href
-                        break
-                if not browse_url:
-                    continue
-
-                try:
-                    img_resp = requests.get(browse_url, timeout=30)
-                except Exception as exc:
-                    logger.warning("Browse tile download failed (%s): %s", entry['title'], exc)
-                    continue
-
-                if img_resp.status_code != 200:
-                    logger.warning("HTTP %d for browse tile %s", img_resp.status_code, entry['title'])
-                    continue
-
-                try:
-                    pil_img = _PILImage.open(_io.BytesIO(img_resp.content)).convert('RGB')
-                    tile_images.append((
-                        tile_lon_min, tile_lon_max,
-                        tile_lat_min, tile_lat_max,
-                        np.array(pil_img),
-                    ))
-                    logger.debug("Loaded browse tile %s", entry['title'])
-                except Exception as exc:
-                    logger.warning("Could not decode browse image for %s: %s", entry['title'], exc)
-
-            if not tile_images:
-                logger.warning("No public browse images found for HLS L30 granules on %s.", date)
-                return
-
-            # Composite all tile images onto a single geographic canvas
-            aoi_lon_min, aoi_lon_max = self.min_lon, self.max_lon
-            aoi_lat_min, aoi_lat_max = self.min_lat, self.max_lat
-            fig_w, fig_h = 5, 10
-            fig_browse, ax_browse = _plt.subplots(figsize=(fig_w, fig_h), dpi=150)
-            ax_browse.set_xlim(aoi_lon_min, aoi_lon_max)
-            ax_browse.set_ylim(aoi_lat_min, aoi_lat_max)
-            ax_browse.set_facecolor('#737373')  # gray for no-data areas
-            ax_browse.set_aspect('auto')
-
-            for (tlon0, tlon1, tlat0, tlat1, img_arr) in tile_images:
-                ax_browse.imshow(
-                    img_arr,
-                    extent=[tlon0, tlon1, tlat0, tlat1],
-                    origin='upper',
-                    aspect='auto',
-                    interpolation='nearest',
-                )
-
-            if self.county_shp and os.path.exists(str(self.county_shp) + '.shp'):
-                try:
-                    counties = gpd.read_file(str(self.county_shp) + '.shp')
-                    counties = counties.to_crs('EPSG:4326')
-                    counties.boundary.plot(ax=ax_browse, color='white', linewidth=0.75)
-                except Exception as exc:
-                    logger.warning("County overlay failed for HLS browse mosaic: %s", exc)
-
-            ax_browse.set_axis_off()
-            _plt.tight_layout(pad=0)
-            os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
-            fig_browse.savefig(out_path, bbox_inches='tight', pad_inches=0, dpi=150)
-            _plt.close(fig_browse)
-            self.truecolor_images_by_date[date] = out_path
-            logger.info("HLS browse mosaic (%d tiles) saved to %s", len(tile_images), out_path)
+            logger.info(
+                "Landsat preview not generated in Stage 2 — preview will be "
+                "created from actual HLS data after granule download.")
+            return
         else:
             logger.warning(
                 "retrieve_worldview_image: satellite '%s' is not supported. "
@@ -1631,11 +1881,205 @@ class GranuleManager:
             rgb = rgb * county_overlay
         return rgb
 
+    def get_truecolor_hv_rgb(self, date, in_app=False, include_counties=True, no_title=False):
+        """Return true-color RGB image for *date* if available, otherwise NIR-Red composite.
+
+        Parameters
+        ----------
+        date : str
+            Analysis date e.g. '2026-03-29'
+        in_app : bool, default False
+            If True, return error message string instead of raising exception.
+        include_counties : bool, default True
+            Overlay county boundaries.
+        no_title : bool, default False
+            Suppress the title in the plot.
+
+        Returns
+        -------
+        hv.RGB
+            HoloViews RGB plot.
+        """
+        if date is None:
+            return None
+        if date not in self.processed_granules_by_date:
+            msg = f"No preprocessed granules found for date {date}."
+            if in_app:
+                return msg
+            else:
+                raise ValueError(msg)
+
+        ds = xr.open_dataset(self.processed_granules_by_date[date])
+
+        # Try true_color first, fallback to NIR-Red composite
+        if 'true_color' in ds:
+            try:
+                tc = ds['true_color'].load()   # (bands=3, y, x) percent reflectance
+                logger.info(f"true_color dims: {tc.dims}, shape: {tc.shape}, coords: {list(tc.coords)}")
+                # Handle different possible dimension names
+                if 'bands' in tc.dims:
+                    r = nonlinear_enhancement(255 * tc.isel(bands=0).values / 100) / 255
+                    g = nonlinear_enhancement(255 * tc.isel(bands=1).values / 100) / 255
+                    b = nonlinear_enhancement(255 * tc.isel(bands=2).values / 100) / 255
+                elif tc.dims[0] in ['band', '__xarray_dataarray_variable__']:
+                    # Handle case where first dimension is band but not named 'bands'
+                    r = nonlinear_enhancement(255 * tc.isel({tc.dims[0]: 0}).values / 100) / 255
+                    g = nonlinear_enhancement(255 * tc.isel({tc.dims[0]: 1}).values / 100) / 255
+                    b = nonlinear_enhancement(255 * tc.isel({tc.dims[0]: 2}).values / 100) / 255
+                else:
+                    raise ValueError(f"true_color has unexpected dims {tc.dims}, expected bands in first dimension")
+                title_str = f"{self.satellite_name} {self.instrument.upper()} True Color for {date}" if not no_title else ""
+            except Exception as tc_exc:
+                logger.warning(f"Error loading true_color for {date}: {tc_exc}. Falling back to NIR-Red.")
+                tc = None
+        else:
+            tc = None
+
+        if tc is None:
+            # Fallback: NIR-Red pseudo-colour if true_color not available or failed to load
+            nir = ds[self.nir_red_band_list[0]].load()
+            red = ds[self.nir_red_band_list[1]].load()
+            r = nonlinear_enhancement(255 * nir.values / 100) / 255
+            g = nonlinear_enhancement(255 * red.values / 100) / 255
+            b = np.sqrt(r * g)
+            title_str = f"{self.satellite_name} {self.instrument.upper()} NIR-Red Composite for {date}" if not no_title else ""
+
+        img = np.stack([r, g, b], axis=-1)
+
+        rgb = hv.RGB((ds.x.values, ds.y.values, img)).opts(
+            width=500,
+            height=1000,
+            title=title_str,
+        )
+        if include_counties:
+            county_overlay = self.get_county_overlay()
+            rgb = rgb * county_overlay
+        return rgb
+
+    def get_truecolor_burnmask_hv(self, date, burnmask_file=None, include_counties=True, burnmask_opacity=0.7):
+        """Return true-color RGB with burned pixels overlaid in orange.
+
+        Parameters
+        ----------
+        date : str  e.g. '2026-03-29'
+        burnmask_file : str, optional
+            Path to a GeoTIFF burnmask.  If None the method looks up
+            ``self.burnmasks_by_date[date]``.
+        include_counties : bool, default True
+        burnmask_opacity : float, default 0.7
+            Opacity of the burn mask overlay (0.0 to 1.0).
+        """
+        import rioxarray as _rxr
+
+        if date not in self.processed_granules_by_date:
+            raise ValueError(f"No processed NC for date {date}.")
+
+        # ── Truecolor background ───────────────────────────────────────────────
+        ds = xr.open_dataset(self.processed_granules_by_date[date])
+        if 'true_color' in ds:
+            tc = ds['true_color'].load()   # (bands=3, y, x) percent reflectance
+            r = nonlinear_enhancement(255 * tc.isel(bands=0).values / 100) / 255
+            g = nonlinear_enhancement(255 * tc.isel(bands=1).values / 100) / 255
+            b = nonlinear_enhancement(255 * tc.isel(bands=2).values / 100) / 255
+        else:
+            # Fallback: NIR-Red pseudo-colour if true_color not saved
+            nir = ds[self.nir_red_band_list[0]].load()
+            red = ds[self.nir_red_band_list[1]].load()
+            r = nonlinear_enhancement(255 * nir.values / 100) / 255
+            g = nonlinear_enhancement(255 * red.values / 100) / 255
+            b = np.sqrt(r * g)
+        ref = ds[list(ds.data_vars)[1]]  # any 2-D var for coords
+        img = np.stack([r, g, b], axis=-1)
+        background = hv.RGB(
+            (ds.x.values, ds.y.values, img)
+        ).opts(width=500, height=1000,
+               title=f"{self.satellite_name} {date} — truecolor + burn mask")
+
+        # ── Burn mask overlay ─────────────────────────────────────────────────
+        if burnmask_file is None:
+            burnmask_file = (self.burnmasks_by_date or {}).get(date)
+            # Auto-discover burn mask files if not in registry
+            if not burnmask_file and os.path.exists(self.burnmask_dir):
+                bm_pattern = f"{self.satellite_name}_{self.spatial_name}_{date}_burnmask.tif"
+                candidate = os.path.join(self.burnmask_dir, bm_pattern)
+                if os.path.exists(candidate):
+                    burnmask_file = candidate
+
+        if burnmask_file and os.path.exists(burnmask_file):
+            try:
+                bm = _rxr.open_rasterio(burnmask_file).squeeze()
+
+                # Use rasterio to properly reproject/resample burn mask
+                # Set CRS on image if missing
+                if ref.rio.crs is None and bm.rio.crs is not None:
+                    ref = ref.rio.write_crs(bm.rio.crs)
+
+                # Reproject burn mask to match image exactly
+                try:
+                    bm_reprojected = bm.rio.reproject_match(ref)
+                except Exception:
+                    # If reprojection fails, resample using coordinates
+                    from scipy.interpolate import RectBivariateSpline
+
+                    # Get coordinate grids
+                    img_x_arr = np.arange(img.shape[1])
+                    img_y_arr = np.arange(img.shape[0])
+
+                    bm_x_arr = np.arange(bm.shape[1])
+                    bm_y_arr = np.arange(bm.shape[0])
+
+                    # Create interpolator for burn mask
+                    f = RectBivariateSpline(bm_y_arr, bm_x_arr, bm.values, kx=1, ky=1)
+
+                    # Map image coordinates to burn mask coordinates
+                    # Use actual geographic coordinates to determine scale
+                    x_scale = (bm.x.values[-1] - bm.x.values[0]) / (ds.x.values[-1] - ds.x.values[0]) * img.shape[1]
+                    y_scale = (bm.y.values[0] - bm.y.values[-1]) / (ds.y.values[0] - ds.y.values[-1]) * img.shape[0]
+
+                    # Find offset
+                    x_offset = (bm.x.values[0] - ds.x.values[0]) / (ds.x.values[-1] - ds.x.values[0]) * img.shape[1]
+                    y_offset = (ds.y.values[0] - bm.y.values[0]) / (ds.y.values[0] - ds.y.values[-1]) * img.shape[0]
+
+                    # Map each image pixel to burn mask coordinates
+                    img_y_grid, img_x_grid = np.meshgrid(img_y_arr, img_x_arr, indexing='ij')
+                    bm_x_mapped = (img_x_grid - x_offset) / x_scale
+                    bm_y_mapped = (img_y_grid - y_offset) / y_scale
+
+                    # Interpolate
+                    bm_values_interpolated = f(bm_y_mapped, bm_x_mapped, grid=False)
+                    bm_reprojected = xr.DataArray(bm_values_interpolated, dims=['y', 'x'])
+
+                burn_mask = np.where(bm_reprojected.values == 1, 1.0, 0.0)
+                burn_color = np.array([213/255, 94/255, 0/255])
+
+                # Composite: blend burn color with background using opacity
+                for c in range(3):
+                    img[:, :, c] = img[:, :, c] * (1 - burn_mask * burnmask_opacity) + \
+                                   burn_color[c] * (burn_mask * burnmask_opacity)
+            except Exception as e:
+                print(f"Warning: Could not overlay burn mask: {e}")
+
+        viz = hv.RGB(
+            (ds.x.values, ds.y.values, np.clip(img, 0, 1))
+        ).opts(width=500, height=1000,
+               title=f"{self.satellite_name} {date} — truecolor + burn mask")
+
+        if include_counties:
+            viz = viz * self.get_county_overlay(color='white')
+        ds.close()
+        return viz
+
     def get_burnmask_hv_rgb(self,burnmask_array=None,burnmask_file=None,include_counties=True):
         if burnmask_array is None and burnmask_file is None:
             raise ValueError("Either burnmask_array or burnmask_file must be provided to get burnmask hv QuadMesh.")
         if burnmask_array is None:
-            raise NotImplementedError("Loading burnmask from file not yet implemented.")
+            import rioxarray as _rxr
+            _ds = _rxr.open_rasterio(burnmask_file).squeeze()
+            burnmask_array = xr.DataArray(
+                _ds.values.astype(float),
+                dims=['y', 'x'],
+                coords={'y': _ds.y.values, 'x': _ds.x.values},
+            )
 
         # RGB appears to be much faster than QuadMesh, render burnmask as a white/orange image
         rgb = [213,94,0]
@@ -1660,7 +2104,8 @@ class GranuleManager:
 
     def to_dict(self):
         """Convert the granule manager to a dictionary representation."""
-        dict_repr = {k:v for k,v in inspect.getmembers(self) if not k.startswith('_') and not inspect.ismethod(v)}
+        exclude_attrs = {'raw_data_dir', 'processed_data_dir', 'truecolor_img_dir', 'userpts_dir', 'burnmask_dir', 'county_shp'}
+        dict_repr = {k:v for k,v in inspect.getmembers(self) if not k.startswith('_') and not inspect.ismethod(v) and k not in exclude_attrs}
         if 'satpy_area_def' in dict_repr.keys():
             dict_repr['satpy_area_def'] = str(dict_repr['satpy_area_def'])
         return dict_repr
@@ -1670,9 +2115,111 @@ class GranuleManager:
             setattr(self, k, data[k])
         return self
 
+    def reconcile_with_filesystem(self):
+        """Sync registry state against what actually exists on disk.
+
+        Handles two failure modes:
+        1. Files exist on disk but are missing from the registry (e.g. the
+           registry JSON was not saved after a successful processing run).
+        2. Registry references files that have since been deleted (e.g. the
+           processed directory was cleaned up manually).
+
+        Called automatically by Registry.load_json() after deserialising so
+        the in-memory state is always consistent with the filesystem.
+        """
+        import glob as _glob
+        import re as _re
+
+        if not self.processed_data_dir or not os.path.isdir(self.processed_data_dir):
+            return
+
+        sat = self.satellite_name   # e.g. "Suomi-NPP"
+        sname = self.spatial_name   # e.g. "flinthills"
+
+        # ── 1. Processed NC files ─────────────────────────────────────────────
+        nc_pattern = os.path.join(self.processed_data_dir,
+                                  f"{sat}_{sname}_*.nc")
+        for nc_path in _glob.glob(nc_pattern):
+            fname = os.path.basename(nc_path)
+            if 'cloud_mask' in fname:
+                continue
+            m = _re.search(r'(\d{4}-\d{2}-\d{2})\.nc$', fname)
+            if not m:
+                continue
+            date = m.group(1)
+            if date not in self.processed_granules_by_date:
+                logger.info(
+                    "reconcile: registering orphaned processed NC for %s %s",
+                    sat, date)
+                self.processed_granules_by_date[date] = nc_path
+                self.processing_status[date] = True
+                if self.download_status.get(date) is not True:
+                    self.download_status[date] = True
+
+        # ── 2. Drop stale processed entries whose files are gone ──────────────
+        for date in list(self.processed_granules_by_date.keys()):
+            if not os.path.exists(self.processed_granules_by_date[date]):
+                logger.warning(
+                    "reconcile: removing stale processed NC entry for %s %s "
+                    "(file missing)", sat, date)
+                del self.processed_granules_by_date[date]
+                self.processing_status[date] = False
+
+        # ── 3. Cloud mask NC files ────────────────────────────────────────────
+        cm_pattern = os.path.join(self.processed_data_dir,
+                                  f"{sat}_{sname}_cloud_mask_*.nc")
+        for cm_path in _glob.glob(cm_pattern):
+            m = _re.search(r'(\d{4}-\d{2}-\d{2})\.nc$', os.path.basename(cm_path))
+            if m and m.group(1) not in self.processed_cloud_masks_by_date:
+                self.processed_cloud_masks_by_date[m.group(1)] = cm_path
+
+        # ── 4. Drop stale cloud-mask entries ─────────────────────────────────
+        for date in list(self.processed_cloud_masks_by_date.keys()):
+            if not os.path.exists(self.processed_cloud_masks_by_date[date]):
+                del self.processed_cloud_masks_by_date[date]
+
     def __str__(self):
         class_str = f"GranuleManager for {self.satellite_name} {self.instrument.upper()}\n > Product short names: {self.short_name_list}"
         return class_str
+
+    def get_known_pass_dates(self, start_date=None, end_date=None):
+        """Return sorted list of known Landsat orbital pass dates within the range.
+
+        Uses ``pass_anchor_dates`` (list of 'YYYY-MM-DD' strings) and
+        ``pass_repeat_days`` (default 16) stored on this instance to project
+        each anchor date backward and forward until it falls outside the
+        [start_date, end_date] window.
+
+        Returns ``None`` for non-Landsat instruments or when no anchor dates
+        are configured (so callers can fall back to iterating every day).
+        """
+        if self.instrument != 'landsat':
+            return None
+        if not self.pass_anchor_dates:
+            return None
+
+        _start = pd.Timestamp(start_date or self.start_date)
+        _end   = pd.Timestamp(end_date   or self.end_date)
+        repeat = int(self.pass_repeat_days or 16)
+        delta  = timedelta(days=repeat)
+
+        known = set()
+        for anchor_str in self.pass_anchor_dates:
+            anchor = pd.Timestamp(anchor_str)
+            # Walk backward from anchor until before start
+            d = anchor
+            while d >= _start:
+                if _start <= d <= _end:
+                    known.add(d.strftime('%Y-%m-%d'))
+                d -= delta
+            # Walk forward from anchor (skip anchor itself — already handled)
+            d = anchor + delta
+            while d <= _end:
+                if _start <= d <= _end:
+                    known.add(d.strftime('%Y-%m-%d'))
+                d += delta
+
+        return sorted(known)
 
     def to_df(self):
         df = pd.DataFrame({'download_status': self.download_status})
@@ -1699,7 +2246,10 @@ class GranuleRegistry:
                  landsat_nir_red_band_list=None, landsat_nbr_bands=None,
                  landsat_ndvi_bands=None, landsat_cloud_mask_short_names=None,
                  satpy_area_def=None, county_shp=None, supported_instruments=None,
-                 userpts_dir=None, viirs_cloud_mask_short_names=None, burnmask_dir=None):
+                 userpts_dir=None, viirs_cloud_mask_short_names=None, burnmask_dir=None,
+                 viirs_versions=None, viirs_cloud_mask_versions=None,
+                 modis_versions=None, modis_cloud_mask_versions=None,
+                 landsat_versions=None, landsat_cloud_mask_versions=None):
 
         self.data_year = data_year
         self.start_month = start_month
@@ -1726,6 +2276,8 @@ class GranuleRegistry:
         self.viirs_nbr_bands = viirs_nbr_bands
         self.viirs_ndvi_bands = viirs_ndvi_bands
         self.viirs_cloud_mask_short_names = viirs_cloud_mask_short_names
+        self.viirs_versions = viirs_versions or {}
+        self.viirs_cloud_mask_versions = viirs_cloud_mask_versions or {}
 
         self.modis_short_names = modis_short_names
         self.modis_band_list = modis_band_list
@@ -1733,10 +2285,14 @@ class GranuleRegistry:
         self.modis_nbr_bands = modis_nbr_bands
         self.modis_ndvi_bands = modis_ndvi_bands
         self.modis_cloud_mask_short_names = modis_cloud_mask_short_names
+        self.modis_versions = modis_versions or {}
+        self.modis_cloud_mask_versions = modis_cloud_mask_versions or {}
 
         self.landsat_short_names = landsat_short_names
         self.landsat_band_list = landsat_band_list
         self.landsat_nir_red_band_list = landsat_nir_red_band_list
+        self.landsat_versions = landsat_versions or {}
+        self.landsat_cloud_mask_versions = landsat_cloud_mask_versions or {}
         self.landsat_nbr_bands = landsat_nbr_bands
         self.landsat_ndvi_bands = landsat_ndvi_bands
         self.landsat_cloud_mask_short_names = landsat_cloud_mask_short_names
@@ -1746,12 +2302,21 @@ class GranuleRegistry:
 
         self.satellites = {}
 
+    def _webmercator_area_extent(self):
+        from pyproj import Transformer
+        transformer = Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
+        min_x, min_y = transformer.transform(self.min_lon, self.min_lat)
+        max_x, max_y = transformer.transform(self.max_lon, self.max_lat)
+        return min_x, min_y, max_x, max_y
+
     def add_satellite(self, satellite_name):
         """Add a satellite to the registry."""
         if satellite_name not in self.satellites:
             if satellite_name not in self.supported_instruments:
                 raise ValueError(f"Satellite {satellite_name} not recognized. Valid options are {self.supported_instruments}.")
 
+            pass_anchor_dates = None
+            pass_repeat_days  = 16
             if self.viirs_short_names and satellite_name in self.viirs_short_names:
                 instrument = 'viirs'
                 short_name_list = self.viirs_short_names[satellite_name]
@@ -1760,6 +2325,8 @@ class GranuleRegistry:
                 nbr_bands = self.viirs_nbr_bands
                 ndvi_bands = self.viirs_ndvi_bands
                 cloud_mask_short_name = self.viirs_cloud_mask_short_names[satellite_name]
+                version = (self.viirs_versions or {}).get(satellite_name)
+                cloud_mask_version = (self.viirs_cloud_mask_versions or {}).get(satellite_name)
             elif self.landsat_short_names and satellite_name in self.landsat_short_names:
                 instrument = 'landsat'
                 short_name_list = self.landsat_short_names[satellite_name]
@@ -1768,6 +2335,10 @@ class GranuleRegistry:
                 nbr_bands = self.landsat_nbr_bands
                 ndvi_bands = self.landsat_ndvi_bands
                 cloud_mask_short_name = (self.landsat_cloud_mask_short_names or {}).get(satellite_name)
+                pass_anchor_dates = getattr(self, 'landsat_pass_anchor_dates', None)
+                pass_repeat_days  = getattr(self, 'landsat_pass_repeat_days', 16)
+                version = (self.landsat_versions or {}).get(satellite_name)
+                cloud_mask_version = (self.landsat_cloud_mask_versions or {}).get(satellite_name)
             else:
                 instrument = 'modis'
                 short_name_list = self.modis_short_names[satellite_name]
@@ -1776,6 +2347,8 @@ class GranuleRegistry:
                 nbr_bands = self.modis_nbr_bands
                 ndvi_bands = self.modis_ndvi_bands
                 cloud_mask_short_name = (self.modis_cloud_mask_short_names or {}).get(satellite_name)
+                version = (self.modis_versions or {}).get(satellite_name)
+                cloud_mask_version = (self.modis_cloud_mask_versions or {}).get(satellite_name)
 
             # Use native spatial resolution for each instrument so reprojected
             # data preserves the sensor's ground sampling distance.
@@ -1793,17 +2366,16 @@ class GranuleRegistry:
                         area_id=self.spatial_name,
                         projection=3857,
                         resolution=_res_m,
-                        area_extent=(self.min_lon, self.min_lat,
-                                     self.max_lon, self.max_lat),
-                        units='degrees',
+                        area_extent=self._webmercator_area_extent(),
+                        units='meters',
                     )
             else:
                 _gm_area_def = self.satpy_area_def
 
             self.satellites[satellite_name] = GranuleManager(
-                satellite_name,
-                short_name_list=short_name_list,
+                satellite_name=satellite_name,
                 instrument=instrument,
+                short_name_list=short_name_list,
                 start_date=f"{self.data_year}-{self.start_month:02d}-{self.start_day:02d}",
                 end_date=f"{self.data_year}-{self.end_month:02d}-{self.end_day:02d}",
                 raw_data_dir=self.raw_data_dir + "/" + satellite_name,
@@ -1811,18 +2383,22 @@ class GranuleRegistry:
                 truecolor_img_dir=self.truecolor_img_dir + "/" + satellite_name,
                 userpts_dir=self.userpts_dir + "/" + satellite_name,
                 burnmask_dir=self.burnmask_dir + "/" + satellite_name,
-                full_band_list=full_band_list,
-                cloud_mask_short_name=cloud_mask_short_name,
-                nir_red_band_list=nir_red_band_list,
-                nbr_bands=nbr_bands,
-                ndvi_bands=ndvi_bands,
                 min_lat=self.min_lat,
                 min_lon=self.min_lon,
                 max_lat=self.max_lat,
                 max_lon=self.max_lon,
                 spatial_name=self.spatial_name,
                 satpy_area_def=_gm_area_def,
-                county_shp=self.county_shp
+                county_shp=self.county_shp,
+                full_band_list=full_band_list,
+                nir_red_band_list=nir_red_band_list,
+                cloud_mask_short_name=cloud_mask_short_name,
+                nbr_bands=nbr_bands,
+                ndvi_bands=ndvi_bands,
+                pass_anchor_dates=pass_anchor_dates,
+                pass_repeat_days=pass_repeat_days,
+                version=version,
+                cloud_mask_version=cloud_mask_version,
             )
         else:
             print(f"Satellite {satellite_name} already exists in the registry.")
@@ -1834,7 +2410,8 @@ class GranuleRegistry:
 
     def to_dict(self):
         """Convert the granule registry to a dictionary representation."""
-        dict_repr = {k:v for k,v in inspect.getmembers(self) if not k.startswith('_') and not inspect.ismethod(v) and not k=='satellites'}
+        exclude_attrs = {'satellites', 'raw_data_dir', 'processed_data_dir', 'truecolor_img_dir', 'userpts_dir', 'burnmask_dir', 'county_shp'}
+        dict_repr = {k:v for k,v in inspect.getmembers(self) if not k.startswith('_') and not inspect.ismethod(v) and k not in exclude_attrs}
         dict_repr['satellites'] = {sat: self.satellites[sat].to_dict() for sat in self.satellites}
         if 'satpy_area_def' in dict_repr.keys():
             dict_repr['satpy_area_def'] = str(dict_repr['satpy_area_def'])
@@ -1879,6 +2456,7 @@ class GranuleRegistry:
 class Registry:
     def __init__(self,get_satpy_area_def=True,auth_earthaccess=True):
         self.granule_registry = {}
+        self.satpy_area_def = None
         self.read_config()
         if get_satpy_area_def:
             self.define_satpy_area_def()
@@ -1922,12 +2500,18 @@ class Registry:
                 modis_ndvi_bands=self.modis_ndvi_bands,
                 modis_short_names=self.modis_short_names,
                 modis_cloud_mask_short_names=self.modis_cloud_mask_short_names,
+                modis_versions=self.modis_versions,
+                modis_cloud_mask_versions=self.modis_cloud_mask_versions,
                 landsat_band_list=self.landsat_full_band_list,
                 landsat_nir_red_band_list=self.landsat_nir_red_band_list,
                 landsat_nbr_bands=self.landsat_nbr_bands,
                 landsat_ndvi_bands=self.landsat_ndvi_bands,
                 landsat_short_names=self.landsat_short_names,
                 landsat_cloud_mask_short_names=self.landsat_cloud_mask_short_names,
+                landsat_versions=self.landsat_versions,
+                landsat_cloud_mask_versions=self.landsat_cloud_mask_versions,
+                viirs_versions=self.viirs_versions,
+                viirs_cloud_mask_versions=self.viirs_cloud_mask_versions,
                 satpy_area_def=self.satpy_area_def,
                 supported_instruments=self.supported_instruments
             ))
@@ -1944,14 +2528,21 @@ class Registry:
         data_year = str(data_year)
         self.granule_registry[data_year] = granule_registry
 
+    def _webmercator_area_extent(self):
+        from pyproj import Transformer
+        transformer = Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
+        min_x, min_y = transformer.transform(self.min_lon, self.min_lat)
+        max_x, max_y = transformer.transform(self.max_lon, self.max_lat)
+        return min_x, min_y, max_x, max_y
+
     def define_satpy_area_def(self, width=500, height=1000, resolution_m=None):
         import warnings
         from pyresample import create_area_def
         warnings.warn("Projection set to Web Mercator (EPSG:3857) for registry.satpy_area_def.")
         area_id = self.spatial_name
         projection = 3857  # EPSG Code for Web Mercator
-        area_extent = self.spatial
-        units = 'degrees'
+        area_extent = self._webmercator_area_extent()
+        units = 'meters'
         if resolution_m is not None:
             satpy_area_def = create_area_def(
                 area_id=area_id,
@@ -2003,13 +2594,21 @@ class Registry:
         self.end_month = config['temporal'].get('end_month', None)
         self.end_day = config['temporal'].get('end_day', None)
 
-        # Filepath Config
-        self.raw_data_dir = str(proj_home_dir / config['paths'].get('raw_data_dir', None))
-        self.processed_data_dir = str(proj_home_dir / config['paths'].get('processed_data_dir', None))
-        self.truecolor_img_dir = str(proj_home_dir / config['paths'].get('truecolor_img_dir', None))
-        self.userpts_dir = str(proj_home_dir / config['paths'].get('userpts_dir', None))
-        self.burnmask_dir = str(proj_home_dir / config['paths'].get('burnmask_dir', None))
-        self.county_shp = str(proj_home_dir / config['paths'].get('county_shp', None))
+        # Filepath Config (store as relative paths for portability)
+        self._raw_data_dir_rel = config['paths'].get('raw_data_dir', None)
+        self._processed_data_dir_rel = config['paths'].get('processed_data_dir', None)
+        self._truecolor_img_dir_rel = config['paths'].get('truecolor_img_dir', None)
+        self._userpts_dir_rel = config['paths'].get('userpts_dir', None)
+        self._burnmask_dir_rel = config['paths'].get('burnmask_dir', None)
+        self._county_shp_rel = config['paths'].get('county_shp', None)
+
+        # Resolve to absolute paths for runtime use
+        self.raw_data_dir = str(proj_home_dir / self._raw_data_dir_rel) if self._raw_data_dir_rel else None
+        self.processed_data_dir = str(proj_home_dir / self._processed_data_dir_rel) if self._processed_data_dir_rel else None
+        self.truecolor_img_dir = str(proj_home_dir / self._truecolor_img_dir_rel) if self._truecolor_img_dir_rel else None
+        self.userpts_dir = str(proj_home_dir / self._userpts_dir_rel) if self._userpts_dir_rel else None
+        self.burnmask_dir = str(proj_home_dir / self._burnmask_dir_rel) if self._burnmask_dir_rel else None
+        self.county_shp = str(proj_home_dir / self._county_shp_rel) if self._county_shp_rel else None
 
         # ── Satellite-specific config ──────────────────────────────────────────
         _viirs_sat_keys = [k for k in config['viirs']
@@ -2021,6 +2620,8 @@ class Registry:
 
         self.viirs_short_names = {k: config['viirs'][k]['short_name_list'] for k in _viirs_sat_keys}
         self.viirs_cloud_mask_short_names = {k: config['viirs'][k]['cloud_mask_short_name'] for k in _viirs_sat_keys}
+        self.viirs_versions = {k: config['viirs'][k].get('version') for k in _viirs_sat_keys}
+        self.viirs_cloud_mask_versions = {k: config['viirs'][k].get('cloud_mask_version') for k in _viirs_sat_keys}
         self.viirs_full_band_list = config['viirs'].get('full_band_list', [])
         self.viirs_nir_red_band_list = config['viirs'].get('nir_red_band_list', [])
         self.viirs_nbr_bands = config['viirs'].get('nbr_bands', None)
@@ -2028,6 +2629,8 @@ class Registry:
 
         self.modis_short_names = {k: config['modis'][k]['short_name_list'] for k in _modis_sat_keys}
         self.modis_cloud_mask_short_names = {k: config['modis'][k]['cloud_mask_short_name'] for k in _modis_sat_keys}
+        self.modis_versions = {k: config['modis'][k].get('version') for k in _modis_sat_keys}
+        self.modis_cloud_mask_versions = {k: config['modis'][k].get('cloud_mask_version') for k in _modis_sat_keys}
         self.modis_full_band_list = config['modis'].get('full_band_list', [])
         self.modis_nir_red_band_list = config['modis'].get('nir_red_band_list', [])
         self.modis_nbr_bands = config['modis'].get('nbr_bands', None)
@@ -2035,15 +2638,21 @@ class Registry:
 
         # Landsat (optional — config block may not exist in older installs)
         _landsat_cfg = config.get('landsat', {})
+        _landsat_non_sat_keys = ('full_band_list', 'nir_red_band_list',
+                                 'nbr_bands', 'ndvi_bands',
+                                 'pass_anchor_dates', 'pass_repeat_days')
         _landsat_sat_keys = [k for k in _landsat_cfg
-                             if k not in ('full_band_list', 'nir_red_band_list',
-                                          'nbr_bands', 'ndvi_bands')]
+                             if k not in _landsat_non_sat_keys]
         self.landsat_short_names = {k: _landsat_cfg[k]['short_name_list'] for k in _landsat_sat_keys}
         self.landsat_cloud_mask_short_names = {k: _landsat_cfg[k]['cloud_mask_short_name'] for k in _landsat_sat_keys}
+        self.landsat_versions = {k: _landsat_cfg[k].get('version') for k in _landsat_sat_keys}
+        self.landsat_cloud_mask_versions = {k: _landsat_cfg[k].get('cloud_mask_version') for k in _landsat_sat_keys}
         self.landsat_full_band_list = _landsat_cfg.get('full_band_list', [])
         self.landsat_nir_red_band_list = _landsat_cfg.get('nir_red_band_list', [])
         self.landsat_nbr_bands = _landsat_cfg.get('nbr_bands', None)
         self.landsat_ndvi_bands = _landsat_cfg.get('ndvi_bands', None)
+        self.landsat_pass_anchor_dates = _landsat_cfg.get('pass_anchor_dates', None)
+        self.landsat_pass_repeat_days = int(_landsat_cfg.get('pass_repeat_days', 16))
 
         self.supported_instruments = (
             list(self.viirs_short_names.keys()) +
@@ -2058,7 +2667,15 @@ class Registry:
 
     def to_dict(self):
         """Convert the registry to a dictionary representation."""
-        dict_repr = {k:v for k,v in inspect.getmembers(self) if not k.startswith('_') and not inspect.ismethod(v) and not k=='granule_registry'}
+        exclude_attrs = {'granule_registry', 'raw_data_dir', 'processed_data_dir', 'truecolor_img_dir', 'userpts_dir', 'burnmask_dir', 'county_shp'}
+        dict_repr = {k:v for k,v in inspect.getmembers(self) if not k.startswith('_') and not inspect.ismethod(v) and k not in exclude_attrs}
+        # Include relative paths instead of absolute ones
+        dict_repr['_raw_data_dir_rel'] = self._raw_data_dir_rel
+        dict_repr['_processed_data_dir_rel'] = self._processed_data_dir_rel
+        dict_repr['_truecolor_img_dir_rel'] = self._truecolor_img_dir_rel
+        dict_repr['_userpts_dir_rel'] = self._userpts_dir_rel
+        dict_repr['_burnmask_dir_rel'] = self._burnmask_dir_rel
+        dict_repr['_county_shp_rel'] = self._county_shp_rel
         dict_repr['granule_registry'] = {year: self.granule_registry[year].to_dict() for year in self.granule_registry}
         if 'satpy_area_def' in dict_repr.keys():
             dict_repr['satpy_area_def'] = str(dict_repr['satpy_area_def'])
@@ -2073,13 +2690,47 @@ class Registry:
             for year in data['granule_registry']
         }
 
+        # Resolve relative paths to absolute, or fall back to config if not in data
+        proj_home_dir = importlib.resources.files('fhba') / "app"
+        if hasattr(self, '_raw_data_dir_rel'):
+            self.raw_data_dir = str(proj_home_dir / self._raw_data_dir_rel)
+        if hasattr(self, '_processed_data_dir_rel'):
+            self.processed_data_dir = str(proj_home_dir / self._processed_data_dir_rel)
+        if hasattr(self, '_truecolor_img_dir_rel'):
+            self.truecolor_img_dir = str(proj_home_dir / self._truecolor_img_dir_rel)
+        if hasattr(self, '_userpts_dir_rel'):
+            self.userpts_dir = str(proj_home_dir / self._userpts_dir_rel)
+        if hasattr(self, '_burnmask_dir_rel'):
+            self.burnmask_dir = str(proj_home_dir / self._burnmask_dir_rel)
+        if hasattr(self, '_county_shp_rel'):
+            self.county_shp = str(proj_home_dir / self._county_shp_rel)
+
+        # If relative paths not in data (old JSON), resolve from config
+        if not hasattr(self, 'raw_data_dir') or not self.raw_data_dir:
+            self.read_config()
+
         if 'satpy_area_def' in data:
             self.define_satpy_area_def()
             _INSTRUMENT_RES_M = {'modis': 250, 'landsat': 30}
             for gr in self.granule_registry:
-                self.granule_registry[gr].satpy_area_def = self.satpy_area_def
-                for gm_name in self.granule_registry[gr].satellites:
-                    gm = self.granule_registry[gr].satellites[gm_name]
+                # Copy paths from parent Registry to GranuleRegistry, with year appended
+                gr_obj = self.granule_registry[gr]
+                gr_obj.raw_data_dir = os.path.join(self.raw_data_dir, str(gr))
+                gr_obj.processed_data_dir = os.path.join(self.processed_data_dir, str(gr))
+                gr_obj.truecolor_img_dir = os.path.join(self.truecolor_img_dir, str(gr))
+                gr_obj.userpts_dir = os.path.join(self.userpts_dir, str(gr))
+                gr_obj.burnmask_dir = os.path.join(self.burnmask_dir, str(gr))
+                gr_obj.county_shp = self.county_shp
+                gr_obj.satpy_area_def = self.satpy_area_def
+                for gm_name in gr_obj.satellites:
+                    gm = gr_obj.satellites[gm_name]
+                    # Set satellite-specific paths on GranuleManager
+                    gm.raw_data_dir = os.path.join(gr_obj.raw_data_dir, gm_name)
+                    gm.processed_data_dir = os.path.join(gr_obj.processed_data_dir, gm_name)
+                    gm.truecolor_img_dir = os.path.join(gr_obj.truecolor_img_dir, gm_name)
+                    gm.userpts_dir = os.path.join(gr_obj.userpts_dir, gm_name)
+                    gm.burnmask_dir = os.path.join(gr_obj.burnmask_dir, gm_name)
+                    gm.county_shp = self.county_shp
                     _res_m = _INSTRUMENT_RES_M.get(
                         getattr(gm, 'instrument', None), None)
                     if _res_m is not None:
@@ -2091,8 +2742,8 @@ class Registry:
                                 area_id=self.spatial_name,
                                 projection=3857,
                                 resolution=_res_m,
-                                area_extent=self.spatial,
-                                units='degrees',
+                                area_extent=self._webmercator_area_extent(),
+                                units='meters',
                             )
                     else:
                         gm.satpy_area_def = self.satpy_area_def
@@ -2116,6 +2767,14 @@ class Registry:
                 val = getattr(self, field, None)
                 if val is not None:
                     setattr(gr, field, val)
+
+        # Reconcile every GranuleManager against the filesystem so the
+        # in-memory state always reflects what's actually on disk, regardless
+        # of whether a previous run saved the registry correctly.
+        for gr in self.granule_registry.values():
+            for gm in gr.satellites.values():
+                gm.reconcile_with_filesystem()
+
         return self
 
     def save_json(self, json_file=importlib.resources.files('fhba') / 'app' / 'state' / 'registry.json'):

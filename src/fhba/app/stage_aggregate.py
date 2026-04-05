@@ -5,11 +5,15 @@ seasonal burn map and reports per-county burned area statistics.
 """
 import os
 
+import holoviews as hv
+import numpy as np
 import pandas as pd
 import panel as pn
 import param
 
 from fhba.app.utils import get_instructions
+
+pn.extension('holoviews')
 
 
 class StageAggregate(param.Parameterized):
@@ -76,6 +80,27 @@ class StageAggregate(param.Parameterized):
         # Holds the seasonal burnmask path once generated
         _state = {'seasonal_file': None, 'stats_csv': None}
 
+        # Map pane — pre-load if a seasonal file already exists
+        hv_pane = pn.pane.HoloViews(None, width=500, height=1000)
+        _seasonal_path = os.path.join(
+            self.gm.burnmask_dir,
+            f"{self.gm.satellite_name}_{self.gm.spatial_name}_"
+            f"{self.gm.start_date.split('-')[0]}_seasonal_burnmask.tif"
+        )
+        if os.path.exists(_seasonal_path):
+            try:
+                hv_pane.object = self.gm.get_burnmask_hv_rgb(burnmask_file=_seasonal_path)
+                _state['seasonal_file'] = _seasonal_path
+                compute_stats_button.disabled = False
+            except Exception:
+                pass
+
+        def _render_map(seasonal_file):
+            try:
+                hv_pane.object = self.gm.get_burnmask_hv_rgb(burnmask_file=seasonal_file)
+            except Exception as exc:
+                pn.state.notifications.warning(f"Could not render map: {exc}", duration=6000)
+
         def generate_seasonal(event):
             loading.value = True
             loading.visible = True
@@ -88,6 +113,7 @@ class StageAggregate(param.Parameterized):
                     f"✅ Seasonal burn map saved to:\n\n`{seasonal_file}`"
                 )
                 compute_stats_button.disabled = False
+                _render_map(seasonal_file)
                 pn.state.notifications.success(
                     "Seasonal burn map generated successfully.", duration=5000)
 
@@ -151,6 +177,40 @@ class StageAggregate(param.Parameterized):
         generate_button.on_click(generate_seasonal)
         compute_stats_button.on_click(compute_stats)
 
+        # ── Date-level truecolor + burn mask viewer ────────────────────────────
+        _processed_dates = sorted([
+            d for d in self.gm.processed_granules_by_date
+            if self.gm.processed_granules_by_date.get(d)
+            and os.path.exists(self.gm.processed_granules_by_date[d])
+        ])
+        date_selector = pn.widgets.Select(
+            name="Date", options=_processed_dates,
+            value=_processed_dates[0] if _processed_dates else None,
+            width=180,
+        )
+        opacity_slider = pn.widgets.FloatSlider(
+            name="Burn Mask Opacity", start=0.0, end=1.0, step=0.05,
+            value=0.7, width=180
+        )
+        view_date_button = pn.widgets.Button(
+            name="View Date", button_type="default", width=120)
+        date_hv_pane = pn.pane.HoloViews(None, width=500, height=1000)
+
+        def _render_date_view(event=None):
+            date = date_selector.value
+            if date is None:
+                return
+            burnmask_file = (self.gm.burnmasks_by_date or {}).get(date)
+            try:
+                date_hv_pane.object = self.gm.get_truecolor_burnmask_hv(
+                    date=date, burnmask_file=burnmask_file,
+                    burnmask_opacity=opacity_slider.value)
+            except Exception as exc:
+                pn.state.notifications.warning(f"Could not render date view: {exc}", duration=6000)
+
+        view_date_button.on_click(_render_date_view)
+        opacity_slider.param.watch(_render_date_view, 'value')
+
         pane = pn.Row(
             pn.Column(
                 instr,
@@ -175,7 +235,18 @@ class StageAggregate(param.Parameterized):
                 download_stats_button,
                 margin=(40, 10), sizing_mode='stretch_both',
                 styles={'background': '#f0f0f0'}
-            )
+            ),
+            pn.Column(
+                pn.pane.Markdown("## Seasonal Burn Map"),
+                hv_pane,
+                margin=(40, 10),
+            ),
+            pn.Column(
+                pn.pane.Markdown("## Date View — Truecolor + Burn Mask"),
+                pn.Row(date_selector, opacity_slider, view_date_button),
+                date_hv_pane,
+                margin=(40, 10),
+            ),
         )
 
         return pane

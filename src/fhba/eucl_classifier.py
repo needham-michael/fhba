@@ -87,6 +87,15 @@ def get_cloudmask(cldmask_nc, threshold=0.80):
     with xr.open_dataset(cldmask_nc) as ds_cldmask:
         if 'Clear_Sky_Confidence' in ds_cldmask:
             cldmask = ds_cldmask['Clear_Sky_Confidence'] >= threshold
+        elif 'cloud_mask' in ds_cldmask:
+            # MODIS MOD35/MYD35 L2: 2-bit values 0=Cloudy, 1=Uncertain,
+            # 2=Probably Clear, 3=Confident Clear
+            # NaN = outside swath coverage; treat as clear so off-swath areas are not masked out.
+            cldmask = ds_cldmask['cloud_mask'].fillna(3) >= 2
+            # Also mask cloud shadow pixels from MOD09GA State_1km bit 2.
+            # NaN = outside tile coverage; treat as no shadow.
+            if 'cloud_shadow' in ds_cldmask:
+                cldmask = cldmask & (ds_cldmask['cloud_shadow'].fillna(0) == 0)
         elif 'Fmask' in ds_cldmask:
             # Fill NaN (no-data) with 0xFF so all cloud bits are set → cloudy
             fmask = ds_cldmask['Fmask'].fillna(255).astype(int)
@@ -94,9 +103,14 @@ def get_cloudmask(cldmask_nc, threshold=0.80):
         else:
             raise KeyError(
                 f"Cloud mask file '{cldmask_nc}' contains neither "
-                "'Clear_Sky_Confidence' nor 'Fmask'.")
+                "'Clear_Sky_Confidence', 'cloud_mask', nor 'Fmask'.")
+        # Apply more aggressive dilation (4 iterations instead of 2) to better mask cloud shadows
+        # This expands masked areas by ~4 pixels to catch semi-transparent cloud edges
+        inverted = 1 - cldmask
+        for _ in range(4):
+            inverted = binary_dilation(inverted)
         cldmask = xr.DataArray(
-            data=1 - binary_dilation(binary_dilation(1 - cldmask)),
+            data=1 - inverted,
             coords=cldmask.coords,
             dims=cldmask.dims
         )

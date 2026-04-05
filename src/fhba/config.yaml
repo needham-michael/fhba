@@ -33,15 +33,21 @@ viirs:
   ndvi_bands: ["I02","I01"]  # NIR=I02, RED=I01
   Suomi-NPP:
     short_name_list: ["VNP02IMG", "VNP03IMG", "VNP02MOD", "VNP03MOD"]
+    version: "002"
     cloud_mask_short_name: "CLDMSK_L2_VIIRS_SNPP"
+    cloud_mask_version: "1"
     start_year: 2012
   NOAA-20:
     short_name_list: ["VJ102IMG", "VJ103IMG", "VJ102MOD", "VJ103MOD"]
+    version: "002"
     cloud_mask_short_name: "CLDMSK_L2_VIIRS_NOAA20"
+    cloud_mask_version: "1"
     start_year: 2018
   NOAA-21:
       short_name_list: ["VJ202IMG", "VJ203IMG", "VJ202MOD", "VJ203MOD"]
+      version: "002"
       cloud_mask_short_name: "CLDMSK_L2_VIIRS_NOAA21"
+      cloud_mask_version: "1"
       start_year: 2023
 
 modis:
@@ -51,12 +57,16 @@ modis:
   nbr_bands: ["2","7"]   # NIR=band2, SWIR=band7
   ndvi_bands: ["2","1"]  # NIR=band2, RED=band1
   AQUA:
-    short_name_list: ["MYD02QKM","MYD02HKM","MYD03"]
+    short_name_list: ["MYD02QKM","MYD02HKM","MYD03","MYD09GA"]
+    version: "061"
     cloud_mask_short_name: "MYD35_L2"
+    cloud_mask_version: "061"
     start_year: 2002
   TERRA:
-    short_name_list: ["MOD02QKM","MOD02HKM","MOD03"]
+    short_name_list: ["MOD02QKM","MOD02HKM","MOD03","MOD09GA"]
+    version: "061"
     cloud_mask_short_name: "MOD35_L2"
+    cloud_mask_version: "061"
     start_year: 2000
 
 landsat:
@@ -65,11 +75,26 @@ landsat:
   nir_red_band_list: ["B5","B4"]
   nbr_bands: ["B5","B7"]   # NIR=B5, SWIR2=B7
   ndvi_bands: ["B5","B4"]  # NIR=B5, RED=B4
+  # Known Landsat orbital pass anchor dates for the Flint Hills study area.
+  # Landsat repeats every 16 days per path; L8 and L9 are offset ~8 days,
+  # giving combined ~8-day effective coverage.
+  # Eastern Flint Hills paths (L8 and L9): anchor 2026-03-01 and 2026-03-09
+  # Western Flint Hills paths (L8 and L9): anchor 2026-03-08 and 2026-03-16
+  pass_anchor_dates:
+    - "2026-03-01"   # eastern Flint Hills (satellite A)
+    - "2026-03-08"   # western Flint Hills (satellite A)
+    - "2026-03-09"   # eastern Flint Hills (satellite B, 8-day offset)
+    - "2026-03-16"   # western Flint Hills (satellite B, 8-day offset)
+  pass_repeat_days: 16
   Landsat-8:
     short_name_list: ["HLSL30"]
+    version: "2.0"
     cloud_mask_short_name: "HLSL30"
+    cloud_mask_version: "2.0"
     start_year: 2013
   Landsat-9:
     short_name_list: ["HLSL30"]
+    version: "2.0"
     cloud_mask_short_name: "HLSL30"
+    cloud_mask_version: "2.0"
     start_year: 2021
