@@ -70,12 +70,26 @@ class StageSetup(param.Parameterized):
 def build_app():
     
     pipeline = pn.pipeline.Pipeline(debug=True)
-    pipeline.add_stage(name="Select Year and Instrument",stage=StageSetup)
-    pipeline.add_stage(name="Download Preview Images",stage=StageDownloadPreviews)
-    pipeline.add_stage(name="Preview and Categorize Images",stage=StagePreviewImages)
+    pipeline.add_stage(name="Select Instrument",stage=StageSetup)
+    pipeline.add_stage(name="Download Previews",stage=StageDownloadPreviews)
+    pipeline.add_stage(name="Sort Images",stage=StagePreviewImages)
     pipeline.add_stage(name="Download Granules",stage=StageDownloadGranules)
     pipeline.add_stage(name="Analyze Pixels",stage=StageAnalyze)
-    pipeline.add_stage(name="Euclidean Categorization",stage=StageClassify)
+    pipeline.add_stage(name="Categorize",stage=StageClassify)
+
+    # Placeholder for tab setup to separate YTD burn mask aggregation and stats
+    # with open("README.md") as f:
+    #     readme_md = f.read()
+
+    # app = pn.Column(
+    #     pn.pane.Markdown("# Flint Hills Burned Area (FHBA) Mapping Tool"),
+    #     pn.layout.Divider(),
+    #     pn.Tabs(
+    #         ("Daily Images",pipeline),
+    #         ("YTD Burn Mask",pn.pane.Markdown("Placeholder")),
+    #         ("README",pn.pane.Markdown(readme_md, width=800)),
+    # )
+    # )
         
     return pipeline
 
