@@ -1,5 +1,7 @@
 import os
 
+from functools import lru_cache
+
 import pandas as pd
 import panel as pn
 import param
@@ -16,6 +18,10 @@ class StageAnalyze(param.Parameterized):
     @param.depends('year','satellite','registry', 'gm')
     def table_pane(self,return_df=False):
 
+        print("**** table_pane called with:")
+        print("self.gm.to_df")
+        print(self.gm.to_df())
+
         gm_df = self.gm.to_df().reset_index()
         gm_df = gm_df.rename(columns={'index':'date'})
         gm_df = gm_df[gm_df['download_status'] == True]
@@ -27,13 +33,9 @@ class StageAnalyze(param.Parameterized):
         if return_df:
             return table, gm_df
         
-        return table
-
-    @param.depends('year','satellite','registry', 'gm')
-    def view(self):
-        instr = get_instructions("05_instr_select_pixels.md",instr_width=250)
-
-        table, gm_df = self.table_pane(return_df=True)
+        return table, gm_df
+    
+    def get_widgets(self, gm_df):
 
         analysis_date_selector = pn.widgets.Select(
             name="",
@@ -49,60 +51,149 @@ class StageAnalyze(param.Parameterized):
             name="Import Previous User Points", button_type="primary", width=250
         )
 
-        # NOTE: The image loading and analysis functionality is not yet implemented. The button click will simply trigger a notification for now.
-        # FOR 2/12/2026 NEED TO IMPLEMENT: On button click, load the image for the selected analysis date and display it in a new pane below the table. This will likely involve using the load_scene and get_nir_red_img functions from hv_rgb.py to load the appropriate granule, preprocess it, and generate a preview image for analysis.   
-        # THIS SHOULD UTILIZE THE load_scene and get_nir_red_img functions from hv_rgb.py to load the appropriate granule, preprocess it, and generate a preview image for analysis. The image pane should be displayed below the table and should update based on the selected analysis date when the button is clicked.
+        # show_fire_checkbox = pn.widgets.Checkbox(
+        #     name="Show HMS Active Fire Overlay", value=True
+        # )
         
-        # county_overlay = hv.Path(gpd.read_file(self.gm.county_shp + ".shp").geometry).opts(
-        #     color='white', line_width=0.75
-        #     )
+        fire_opacity_slider = pn.widgets.FloatSlider(
+            name="Active Fire Opacity", start=0.0, end=1.0, step=0.05,
+            value=1.0, width=180,
+        )
 
+        overlay_loading = pn.indicators.LoadingSpinner(
+            name="Loading HMS Overlay...", width=20, height=20, visible=False, value=False) 
+        
+        loading = pn.indicators.LoadingSpinner(
+            name="Loading Image...", width=200, height=25,visible=False,value=False)
+        
+        export_button = pn.widgets.Button(
+            name='Export Points', button_type='danger')
 
-        # hv_rgb = self.gm.get_nir_red_hv_rgb(date=analysis_date_selector.value)
+        export_options = pn.widgets.CheckBoxGroup(
+            name='Export Options', 
+            value=[], 
+            options=['Overwrite Points']
+        )
+
+        return (analysis_date_selector, load_img_button, load_pts_button, 
+                fire_opacity_slider, overlay_loading, loading, 
+                export_button, export_options)
+
+    @param.depends('year','satellite','registry', 'gm')
+    def view(self):
+        instr = get_instructions("05_instr_select_pixels.md",instr_width=250)
+
+        table, gm_df = self.table_pane(return_df=True)
+
+        # -------------------------------- SETUP WIDGETS -------------------------------
+
+        analysis_date_selector, load_img_button, load_pts_button, \
+            fire_opacity_slider, overlay_loading, loading, export_button, export_options = self.get_widgets(gm_df)
+
+        # INITIALIZE ELEMENTS FOR HV PANE
         hv_pane = pn.pane.HoloViews(None, width=500, height=1000)
-
-        loading = pn.indicators.LoadingSpinner(name="Loading Image...", width=200, height=25,visible=False,value=False)
 
         points_burned, points_burned_stream = initialize_userpoints(color='red',label='Burned')
         points_unburned, points_unburned_stream = initialize_userpoints(color='blue',marker='+',label='Unburned')
+        fire_overlay = initialize_userpoints(
+            color='orange',marker='o',label='HMS Active Fire',point_locations=([],[]))
+        
+        print(f"{fire_overlay = }")  # Debugging statement
+
+        self.current_date = None
+        self.current_rgb = None
+        self.current_fire_overlay = fire_overlay
+        self.current_points_burned = points_burned
+        self.current_points_unburned = points_unburned
+
+        # ----------------------------- Callback Functions -----------------------------
+
+        def reset_user_points(event):
+            points_burned.data = pd.DataFrame({'x':[],'y':[]})
+            points_unburned.data = pd.DataFrame({'x':[],'y':[]})
+            self.current_points_burned = points_burned
+            self.current_points_unburned = points_unburned
+
+        def construct_hvpane(event):
+            if self.current_rgb is not None:
+                hv_pane.object = \
+                    self.current_rgb * self.current_points_burned * \
+                    self.current_points_unburned * self.current_fire_overlay
 
         def update_hv_rgb(event):
+            
             date = analysis_date_selector.value
-
             print(f"Updating HV RGB with {date = }")  # Debugging statement
             
             loading.value = True
             loading.visible = True
             loading.name='Loading Image...'
 
-            try:
-                rgb = self.gm.get_nir_red_hv_rgb(date=date,in_app=True,include_counties=True)
+            # Skip reloading the image if the same date is selected again
+            if date == self.current_date and self.current_rgb is not None:
+                pn.state.notifications.info(
+                    f"Image for date {date} is already loaded.", duration=3000)
+                loading.value = False
+                loading.visible = False
+                return
 
-                # Reset points to empty when loading a new image
-                points_burned.data = pd.DataFrame({'x':[],'y':[]})
-                points_unburned.data = pd.DataFrame({'x':[],'y':[]})
+            pn.state.notifications.info(
+                f"Loading image for analysis date: {analysis_date_selector.value}",
+                duration=3000)
+            
+            try:
+                rgb = self.gm.get_nir_red_hv_rgb(
+                    date=date,in_app=True,include_counties=True)
+                
             except Exception as e:
-                pn.state.notifications.error(f"Error loading image for date {date}: {str(e)}",duration=6000)
+                pn.state.notifications.error(
+                    f"Error loading image for date {date}: {str(e)}",duration=6000)
                 loading.value = False
                 loading.name='Error Loading Image.'
-            
-            if isinstance(rgb, str):
-                pn.state.notifications.error(rgb)
                 return
             
-            if rgb is not None:
-                hv_pane.object = rgb * points_burned * points_unburned
-
-                # Rename the two point draw tools
-                 
+            if isinstance(rgb, str):
+                pn.state.notifications.error(rgb, duration=6000)
+                loading.value = False
+                loading.visible = False
+                loading.name = 'No data available.'
+                return
+            
+            self.current_rgb = rgb
+            self.current_date = date     
             loading.value = False
             loading.visible = False
-        
-        load_img_button.on_click(
-            lambda event: pn.state.notifications.info(f"Loading image for analysis date: {analysis_date_selector.value}")
-        )
 
-        load_img_button.on_click(update_hv_rgb)
+        def update_fire_overlay(event):
+            
+            date = analysis_date_selector.value
+
+            overlay_loading.visible = True
+            overlay_loading.value = True
+                
+            self.current_fire_overlay = self.gm.get_hms_active_fire_overlay(date)
+
+            if self.current_rgb is not None:
+                construct_hvpane(event)
+
+            overlay_loading.visible = False
+            overlay_loading.value = False   
+
+        def update_fire_overlay_opacity(event):
+
+            overlay_loading.visible = True
+            overlay_loading.value = True
+
+            if self.current_fire_overlay is not None:
+                for element in self.current_fire_overlay.items():
+                    element[1].opts(alpha=fire_opacity_slider.value)
+                # self.current_fire_overlay.opts(alpha=fire_opacity_slider.value)
+
+            if self.current_rgb is not None:
+                construct_hvpane(event)
+
+            overlay_loading.visible = False
+            overlay_loading.value = False
 
         def load_user_points(event):
 
@@ -111,11 +202,13 @@ class StageAnalyze(param.Parameterized):
             print(f"Updating HV RGB with {date = }")  # Debugging statement
 
             points_csv_file = os.path.join(
-                self.gm.userpts_dir,f"./{self.gm.spatial_name}_userpts_{self.gm.satellite_name}_{date}.csv"
+                self.gm.userpts_dir,
+                f"./{self.gm.spatial_name}_userpts_{self.gm.satellite_name}_{date}.csv"
             )
 
             if not os.path.exists(points_csv_file):
-                pn.state.notifications.error(f"No previous points found for date {date}.",duration=6000)
+                pn.state.notifications.error(
+                    f"No previous points found for date {date}.",duration=6000)
                 return
 
             print(f"Loading user points from {points_csv_file}")  # Debugging statement
@@ -125,43 +218,50 @@ class StageAnalyze(param.Parameterized):
             df_isburned = df_userpts[df_userpts['isBurned']==1]
             df_unburned = df_userpts[df_userpts['isBurned']==0]
 
-            points_burned.data = pd.DataFrame({'x':df_isburned['x'].tolist(),'y':df_isburned['y'].tolist()})
-            points_unburned.data = pd.DataFrame({'x':df_unburned['x'].tolist(),'y':df_unburned['y'].tolist()})
+            points_burned.data = pd.DataFrame(
+                {'x':df_isburned['x'].tolist(),'y':df_isburned['y'].tolist()})
+            points_unburned.data = pd.DataFrame(
+                {'x':df_unburned['x'].tolist(),'y':df_unburned['y'].tolist()})
+            
+            self.current_points_burned = points_burned
+            self.current_points_unburned = points_unburned
 
             loading.value = True
             loading.visible = True
             loading.name='Loading Image...'
 
-            try:
-                rgb = self.gm.get_nir_red_hv_rgb(date=date,in_app=True,include_counties=True)
-            except Exception as e:
-                pn.state.notifications.error(f"Error loading image for date {date}: {str(e)}",duration=6000)
-                loading.value = False
-                loading.name='Error Loading Image.'
+            # try:
+            #     rgb = self.gm.get_nir_red_hv_rgb(
+            #         date=date,in_app=True,include_counties=True)
+            # except Exception as e:
+            #     pn.state.notifications.error(
+            #         f"Error loading image for date {date}: {str(e)}",duration=6000)
+            #     loading.value = False
+            #     loading.name='Error Loading Image.'
             
-            if isinstance(rgb, str):
-                pn.state.notifications.error(rgb)
-                return
+            # if isinstance(rgb, str):
+            #     pn.state.notifications.error(rgb)
+            #     return
+
+            if self.current_rgb is None:
+                update_hv_rgb(event)
             
-            if rgb is not None:
-                hv_pane.object = rgb * points_burned * points_unburned 
+            update_fire_overlay(event)
+            construct_hvpane(event)
+
+            
+            # if rgb is not None:
+            #     self.current_base = rgb * points_burned * points_unburned
+            #     if show_fire_checkbox.value:
+            #         try:
+            #             fire_overlay = self.gm.get_hms_active_fire_overlay(date, alpha=fire_opacity_slider.value)
+            #         except Exception as exc:
+            #             print("Could not load active fire overlay: %s", exc)
+            #     self.current_fire_overlay = fire_overlay
+            #     hv_pane.object = self.current_base * fire_overlay if fire_overlay else self.current_base
+
             loading.value = False
             loading.visible = False
-
-        # load_pts_button.on_click(
-        #     lambda event: pn.state.notifications.info(f"Importing previous user points for analysis date: {analysis_date_selector.value}")
-        # )
-
-        load_pts_button.on_click(load_user_points)
-
-        export_button = pn.widgets.Button(
-            name='Export Points', button_type='danger')
-
-        export_options = pn.widgets.CheckBoxGroup(
-            name='Export Options', 
-            value=[], 
-            options=['Overwrite Points']
-        )
 
         def export_button_callback(event):
             selected_options = export_options.value
@@ -218,12 +318,25 @@ class StageAnalyze(param.Parameterized):
                 return
             
         def reload_table(event):
-            table.object = self.table_pane(return_df=False).object
+
+            table.object = self.table_pane(return_df=False)[0].object
+
+        
+        load_img_button.on_click(update_hv_rgb)
+        load_img_button.on_click(update_fire_overlay)
+        load_img_button.on_click(construct_hvpane)
+        load_img_button.on_click(reset_user_points)
+        
+        load_pts_button.on_click(load_user_points)
+        load_pts_button.on_click(update_fire_overlay)
+        load_pts_button.on_click(construct_hvpane)
             
         export_button.on_click(export_button_callback)
         export_button.on_click(reload_table)
 
-            
+        fire_opacity_slider.param.watch(update_fire_overlay_opacity, 'value')
+        # show_fire_checkbox.param.watch(update_fire_overlay, 'value')
+
         return pn.Row(
             pn.Column(
                 instr,
@@ -240,6 +353,7 @@ class StageAnalyze(param.Parameterized):
                     load_img_button,
                     loading
                 ),
+                pn.Row(fire_opacity_slider, overlay_loading),
                 pn.layout.Divider(),
                 table,
                 width=600,
