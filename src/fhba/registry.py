@@ -160,6 +160,118 @@ class GranuleManager:
                                       f"Choose from 'eucl', 'rf', or 'svm'.")
 
         return burnmask, confidence_ds
+    
+    def aggregate_burnmasks(self, out_file=None):
+        """Union all finalized burn masks into a single seasonal burn map.
+        Parameters
+        ----------
+        out_file : str, optional
+            Output GeoTIFF path. Defaults to
+            ``<burnmask_dir>/<satellite>_<spatial>_seasonal_burnmask.tif``.
+        Returns
+        -------
+        str
+            Path to the written seasonal burn map GeoTIFF.
+        """
+        import rioxarray as rxr
+        burnmask_files = getattr(self, 'burnmask_by_date', {})
+        if not burnmask_files:
+            raise ValueError("No finalized burn masks found. Run export_burnmask for at least one date first.")
+        
+        print("== Burn mask files to aggregate ==")
+        print(burnmask_files)
+
+        arrays = []
+        for date, path in sorted(burnmask_files.items()):
+            if path and os.path.exists(path):
+                da = rxr.open_rasterio(path).squeeze()
+                da = da.expand_dims(dim={'time': [date]})
+                arrays.append(da)
+        if not arrays:
+            raise ValueError("Burn mask files listed in registry do not exist on disk.")
+
+        stacked = xr.concat(arrays, dim='time')
+        seasonal = stacked.max(dim='time')
+
+        if out_file is None:
+            os.makedirs(self.burnmask_dir, exist_ok=True)
+            year = self.start_date.split('-')[0]
+            out_file = os.path.join(
+                self.burnmask_dir,
+                f"{self.satellite_name}_{self.spatial_name}_{year}_seasonal_burnmask.tif")
+        seasonal.rio.to_raster(out_file)
+        logger.info("Seasonal burn map written to %s", out_file)
+        return out_file
+    
+    def compute_burn_area_by_county(self, burnmask_file):
+        """Compute burned area statistics per county from a burn mask GeoTIFF.
+        
+        Calculates area burned using Albers Equal-Area (EPSG:5070) projection. Includes 
+        a total row summing all counties.
+        
+        Parameters
+        ----------
+        burnmask_file : str
+            Path to a binary burn mask GeoTIFF (1 = burned, 0 = not burned).
+        Returns
+        -------
+        gdf : geopandas.GeoDataFrame
+            County-level statistics with columns:
+            county_name, burned_area_km2_utm, burned_area_acres_utm,
+            burned_area_km2_albers, burned_area_acres_albers.
+            Includes a 'Total' row at the end.
+        """
+        import rioxarray as rxr
+        counties = gpd.read_file(self.county_shp + ".shp")
+        with rxr.open_rasterio(burnmask_file) as ds:
+            
+            # Reproject to Albers Equal-Area (EPSG:5070) for comparison
+            ds_albers = ds.rio.reproject("EPSG:5070")
+            res_x_albers, res_y_albers = ds_albers.rio.resolution()
+            pixel_area_m2_albers = abs(res_x_albers * res_y_albers)
+            pixel_area_km2_albers = pixel_area_m2_albers / 1_000_000
+            pixel_area_acres_albers = pixel_area_m2_albers / 4046.856
+            counties_albers = counties.to_crs("EPSG:5070")
+
+            records = []
+            total_km2_albers = 0.0
+            total_acres_albers = 0.0
+            
+            name_col = next((c for c in counties.columns if 'name' in c.lower()), counties.columns[0])
+            
+            for idx in range(len(counties)):
+                county_albers = counties_albers.iloc[idx]
+                county_name = counties.iloc[idx][name_col]
+
+                # Calculate for EPSG:5070
+                try:
+                    clipped_albers = ds_albers.rio.clip([county_albers.geometry], drop=True, all_touched=False)
+                    n_burned_albers = int((clipped_albers == 1).sum())
+                except Exception:
+                    n_burned_albers = 0
+                km2_albers = round(n_burned_albers * pixel_area_km2_albers, 4)
+                acres_albers = round(n_burned_albers * pixel_area_acres_albers, 1)
+                
+                records.append({
+                    'county_name': county_name,
+                    'burned_area_km2': km2_albers,
+                    'burned_area_acres': acres_albers,
+                })
+                
+                total_km2_albers += km2_albers
+                total_acres_albers += acres_albers
+            
+            # Add total row
+            records.append({
+                'county_name': 'Total',
+                'burned_area_km2': round(total_km2_albers, 4),
+                'burned_area_acres': round(total_acres_albers, 1),
+            })
+        
+        # Create GeoDataFrame with geometries for counties and None for total
+        geometries = list(counties['geometry'].values) + [None]
+        gdf = gpd.GeoDataFrame(records, geometry=geometries, crs=counties.crs)
+        return gdf
 
     def prepare_data(self,date):
         """Prepare data for a given date by downloading and preprocessing granules."""
