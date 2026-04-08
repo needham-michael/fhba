@@ -1,7 +1,10 @@
+import logging
 import os
 import importlib
 
+import holoviews as hv
 import geopandas as gpd
+import numpy as np
 import pandas as pd
 import panel as pn
 import param
@@ -9,6 +12,8 @@ import rasterio
 import rioxarray as rxr
 
 from fhba.app.utils import get_instructions, initialize_userpoints, initialize_userpolys, polys2gdf
+
+logger = logging.getLogger(__name__)
 
 class StageClassify(param.Parameterized):
 
@@ -34,10 +39,10 @@ class StageClassify(param.Parameterized):
         
         return table
 
-    @param.depends('year','satellite','registry','gm')
-    def categorize_pixels(self,date):
+    # @param.depends('year','satellite','registry','gm')
+    # def categorize_pixels(self,date):
 
-        pass
+    #     pass
 
     @param.depends('year','satellite','registry','gm')
     def view(self):
@@ -46,9 +51,33 @@ class StageClassify(param.Parameterized):
         table, gm_df = self.table_pane(return_df=True)
 
         analysis_date_selector = pn.widgets.Select(
-            name="",
+            name="Post-fire Analysis Date",
             options=gm_df['date'].tolist(),
             width=200,
+        )
+
+        # Pre-fire reference date for dNBR computation
+        # clear_dates = self.gm.get_clear_processed_dates()
+        pre_fire_date_selector = pn.widgets.Select(
+            name="Pre-fire Reference Date (for dNBR)",
+            options=['None'] + gm_df['date'].tolist(),
+            value='None',
+            width=220,
+            visible=False,  # Initially hidden; only show when dNBR option is implemented
+        )
+
+         # Classification method selector
+        method_selector = pn.widgets.Select(
+            name="Classification Method",
+            options=['eucl', 'rf', 'svm'],
+            value='eucl',
+            width=120,
+        )
+        method_help = pn.pane.Markdown(
+            "_eucl_ – Euclidean distance (fast, no training required)  \n"
+            "_rf_ – Random Forest (recommended for accuracy)  \n"
+            "_svm_ – Support Vector Machine",
+            width=300,
         )
 
         load_img_button = pn.widgets.Button(
@@ -66,6 +95,7 @@ class StageClassify(param.Parameterized):
         county_overlay = self.gm.get_county_overlay().opts(width=500, height=1000)
 
         hv_pane = pn.pane.HoloViews(county_overlay)
+        burnmask_pane = pn.pane.HoloViews(county_overlay)
 
         loading = pn.indicators.LoadingSpinner(name="Loading Image...", width=200, height=50,visible=False,value=False)
 
@@ -115,7 +145,9 @@ class StageClassify(param.Parameterized):
                 return
             
             if rgb is not None:
-                hv_pane.object = rgb * points_burned * points_unburned * polys_areamask
+                hv_pane.object = (rgb * points_burned * points_unburned * polys_areamask).opts(
+                    title=f"{self.satellite} Imagery - {date}",
+                )
 
             loading.value = False
             loading.visible = False
@@ -135,10 +167,16 @@ class StageClassify(param.Parameterized):
 
         def categorize_pixels(event):
             date = analysis_date_selector.value
+            method = method_selector.value
+            pre_date = pre_fire_date_selector.value
+            pre_date = None if pre_date == 'None' else pre_date
 
             loading.value = True
             loading.visible = True
             loading.name='Classifying Pixels...'
+
+            # Ensure old burnmask layers are cleared before loading new results
+            # burnmask_pane = pn.pane.HoloViews(county_overlay)
 
             pn.state.notifications.info(f"Classifying pixels for analysis date: {date}",duration=6000)
 
@@ -168,10 +206,11 @@ class StageClassify(param.Parameterized):
                 loading.name='Classifying Pixels...'
                 alert_pane.visible = False
 
-            burnmask = self.gm.classify_pixels(
-                method='eucl',
-                date=date,
-                landcover_mask_file=landcover_mask_file
+            burnmask, confidence_ds = self.gm.classify_pixels(
+                    method=method,
+                    date=date,
+                    landcover_mask_file=landcover_mask_file,
+                    pre_fire_date=pre_date,
                 )
             
             loading.name='Saving Temporary Results...'
@@ -204,7 +243,21 @@ class StageClassify(param.Parameterized):
 
             burnmask_qm = self.gm.get_burnmask_hv_rgb(burnmask_array=burnmask.burnmask)
 
-            hv_pane.object = hv_pane.object + (burnmask_qm * polys_areamask)
+            burnmask_pane.object = (county_overlay * (burnmask_qm * polys_areamask)).opts(
+                title=f"Burn Mask - {date} ({method} classification)")
+
+            # conf_vals = confidence_ds['confidence'].values
+            # conf_da = confidence_ds['confidence']
+            # conf_img = hv.Image(
+            #     (conf_da.x.values, conf_da.y.values, conf_vals),
+            #     kdims=['x', 'y'], vdims=['confidence']
+            # ).opts(cmap='RdBu_r', alpha=0.4, colorbar=True,
+            #         clim=(float(np.nanpercentile(conf_vals, 5)),
+            #                 float(np.nanpercentile(conf_vals, 95))),
+            #         title='Confidence (red=burned, blue=unburned)',
+            #         width=500, height=1000)
+            
+            # hv_pane.object = hv_pane.object * conf_img
 
             loading.value = False
             loading.visible = False
@@ -214,6 +267,7 @@ class StageClassify(param.Parameterized):
         def export_burnmask(event):
 
             date = analysis_date_selector.value
+            method = method_selector.value
 
             burnmask_tmp_file = os.path.join(
                 self.gm.burnmask_dir,
@@ -226,7 +280,7 @@ class StageClassify(param.Parameterized):
             
             burnmask_final_file = os.path.join(
                 self.gm.burnmask_dir,
-                f"{self.gm.satellite_name}_{self.gm.spatial_name}_{date}_burnmask.tif"
+                f"{self.gm.satellite_name}_{self.gm.spatial_name}_{date}_burnmask_{method_selector.value}.tif"
             )
 
             counties = gpd.read_file(self.gm.county_shp + ".shp")
@@ -266,25 +320,39 @@ class StageClassify(param.Parameterized):
             pn.Column(
                 instr,
                 pn.pane.Alert(
-                    "Tip: If a large number of spurious small burned pixels are generated, try increasing the number of unburned points selected in the vacinity of the spurious features.",
-                    sizing_mode='stretch_width',alert_type='warning',width=250,),
+                    "Tip: If many spurious small burned pixels appear, try increasing "
+                    "unburned training points near those features.",
+                    sizing_mode='stretch_width', alert_type='warning', width=250),
                 sizing_mode='stretch_height',
                 width=250,
             ),
             pn.Column(
-                pn.pane.Markdown("## Categorize Granules Based on User-Identified Points"),
-                pn.Row(analysis_date_selector, load_img_button,categorize_pixel_button),
+                pn.pane.Markdown("## Classify Pixels"),
+                pn.Row(analysis_date_selector, pre_fire_date_selector,method_selector),
+                method_help,
+                pn.Row(load_img_button, categorize_pixel_button),
                 pn.layout.Divider(),
                 table,margin=(40, 10), width=600,styles={'background': '#f0f0f0'}
             ),
             pn.Column(
-                pn.pane.Markdown("## Identify Burned and Unburned Pixels"),
+                pn.pane.Markdown("## Burn Scar Map"),
                 export_burnmask_button,
-                pn.Column(alert_pane,loading,hv_pane)),
+                pn.Column(alert_pane,loading),
+                pn.Row(
+                    pn.Column(
+                        pn.pane.Markdown(f"**Imagery**"),
+                        hv_pane,
+                    ),
+                    pn.Column(
+                        pn.pane.Markdown(f"**Burn Mask**"),
+                        burnmask_pane,
+                    ),
+                ),
                 margin=(40, 10), styles={'background': '#f0f0f0'}
             )
+        )
         
         return pane
     
     def panel(self):
-        return pn.Row(self.view,)
+        return pn.Row(self.view)
