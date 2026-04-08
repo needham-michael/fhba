@@ -78,20 +78,20 @@ def build_app():
     pipeline.add_stage(name="Categorize",stage=StageClassify)
 
     # Placeholder for tab setup to separate YTD burn mask aggregation and stats
-    # with open("README.md") as f:
-    #     readme_md = f.read()
+    with open("README.md") as f:
+        readme_md = f.read()
 
-    # app = pn.Column(
-    #     pn.pane.Markdown("# Flint Hills Burned Area (FHBA) Mapping Tool"),
-    #     pn.layout.Divider(),
-    #     pn.Tabs(
-    #         ("Daily Images",pipeline),
-    #         ("YTD Burn Mask",pn.pane.Markdown("Placeholder")),
-    #         ("README",pn.pane.Markdown(readme_md, width=800)),
-    # )
-    # )
+    app = pn.Column(
+        pn.pane.Markdown("# Flint Hills Burned Area (FHBA) Mapping Tool"),
+        pn.layout.Divider(),
+        pn.Tabs(
+            ("Daily Images",pipeline),
+            ("YTD Burn Mask",pn.pane.Markdown("Placeholder")),
+            ("README",pn.pane.Markdown(readme_md, width=800)),
+    )
+    )
         
-    return pipeline
+    return app
 
 if __name__.startswith("bokeh"):
     app = build_app()
