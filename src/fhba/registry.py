@@ -4,6 +4,7 @@ from functools import lru_cache
 import importlib
 import inspect
 import json
+import logging
 import os
 import tempfile
 from unicodedata import category
@@ -24,17 +25,20 @@ from satpy.enhancements import overlays
 from fhba.eucl_classifier import classify_pixels_eucl
 from fhba.image import nonlinear_enhancement
 
+logger = logging.getLogger(__name__)
+
 class GranuleManager:
     """Maintain status of granule downloads, file QC, and processing."""
-    def __init__(self,satellite_name=None,instrument=None,short_name_list=None,
-                 start_date=None,end_date=None,raw_data_dir=None,processed_data_dir=None,
-                 truecolor_img_dir=None,min_lat=None,min_lon=None,max_lat=None,
-                 max_lon=None,spatial_name=None,satpy_area_def=None,county_shp=None,
-                 raw_granules_by_date=None,processed_granules_by_date=None,
-                 truecolor_images_by_date=None,full_band_list=None,nir_red_band_list=None,
-                 userpts_dir=None, cloud_mask_short_name=None,userpts_by_date=None,
-                 burnmasks_by_date=None,burnmask_dir=None):
-        
+    def __init__(self, satellite_name=None, instrument=None, short_name_list=None,
+                 start_date=None, end_date=None, raw_data_dir=None, processed_data_dir=None,
+                 truecolor_img_dir=None, min_lat=None, min_lon=None, max_lat=None,
+                 max_lon=None, spatial_name=None, satpy_area_def=None, county_shp=None,
+                 raw_granules_by_date=None, processed_granules_by_date=None,
+                 truecolor_images_by_date=None, full_band_list=None, nir_red_band_list=None,
+                 userpts_dir=None, cloud_mask_short_name=None, userpts_by_date=None,
+                 burnmasks_by_date=None, burnmask_dir=None,
+                 nbr_bands=None, ndvi_bands=None):
+
         self.satellite_name = satellite_name
         self.instrument = instrument.lower() if instrument is not None else None
         self.short_name_list = short_name_list if short_name_list is not None else []
@@ -55,17 +59,21 @@ class GranuleManager:
         self.county_shp = county_shp
         self.full_band_list = full_band_list if full_band_list is not None else []
         self.nir_red_band_list = nir_red_band_list if nir_red_band_list is not None else []
+        self.nbr_bands = nbr_bands  # [nir_band, swir_band] or None
+        self.ndvi_bands = ndvi_bands  # [nir_band, red_band] or None
 
-        if self.instrument not in ['viirs','modis',None]:
-            raise ValueError(f"Instrument {instrument} not recognized. Valid options are 'viirs' or 'modis'.")
+        if self.instrument not in ['viirs', None]:
+            if self.instrument in ['landsat', 'modis']:
+                raise NotImplementedError(f"Instrument '{instrument}' is not yet supported. Only VIIRS imagery is currently implemented.")
+            else:
+                raise ValueError(f"Instrument {instrument} not recognized. Valid options are 'viirs'.")
 
         # Define dictionaries to maintain status of satellite granules by date at 
         # various workflow stages.
         if self.start_date is not None and self.end_date is not None:
             date_range = pd.date_range(
                 start=self.start_date,end=self.end_date,freq='D'
-                ).strftime("%Y-%m-%d").tolist()
-            
+            ).strftime("%Y-%m-%d").tolist()
             self.download_status = {d:False for d in date_range}
             self.cloud_mask_download_status = {d:False for d in date_range}
             self.qc_status = {d:-1 for d in date_range}
@@ -77,42 +85,81 @@ class GranuleManager:
         if raw_granules_by_date is None:
             self.raw_granules_by_date = {}
             self.raw_cloud_mask_granules_by_date = {}
-
         if processed_granules_by_date is None:
             self.processed_granules_by_date = {}
             self.processed_cloud_masks_by_date = {}
-
         if truecolor_images_by_date is None:
             self.truecolor_images_by_date = {}
-
         if userpts_by_date is None:
             self.userpts_by_date = {}
-
         if burnmasks_by_date is None:
             self.burnmasks_by_date = {}
 
-    def classify_pixels(self,date,method='eucl',landcover_mask_file=None):
-
+    def classify_pixels(self,date,method='eucl',landcover_mask_file=None,
+                        min_area_pixels=5, pre_fire_date=None, **clf_kwargs):
+        """Classify pixels as burned/unburned for a given date.
+        Parameters
+        ----------
+        date : str
+            Analysis date (YYYY-MM-DD).
+        method : {"eucl", "rf", "svm"}, default "eucl"
+            Classification method.
+        landcover_mask_file : str, optional
+            Path to resampled NLCD land-cover mask. Resolved automatically if None.
+        min_area_pixels : int, default 5
+            Minimum burn-patch size in pixels; smaller patches are removed.
+        pre_fire_date : str, optional
+            Pre-fire reference date for dNBR computation. When provided, dNBR
+            is computed and appended as an additional classification feature.
+        **clf_kwargs
+            Extra kwargs forwarded to the ML classifier (method="rf"/"svm" only).
+        Returns
+        -------
+        burnmask : xr.Dataset
+        confidence_ds : xr.Dataset
+        """
         nc_file = self.processed_granules_by_date[date]
         points_csv_file = self.userpts_by_date[date]
         cldmask_file = self.processed_cloud_masks_by_date[date]
 
         if landcover_mask_file is None:
             landcover_mask_file = importlib.resources.files("fhba.app.appdata.annual_nlcd") / f"NLCD_LandMask_{self.spatial_name}.tif"
+            
+        # Optionally compute dNBR
+        dnbr_array = None
+        if pre_fire_date is not None and self.nbr_bands is not None:
+            from fhba.eucl_classifier import compute_dnbr
+            pre_nc = self.processed_granules_by_date.get(pre_fire_date)
+            if pre_nc is not None:
+                nir_band, swir_band = self.nbr_bands
+                dnbr_array = compute_dnbr(pre_nc, nc_file, nir_band, swir_band)
+            else:
+                logger.warning("Pre-fire date %s has no processed granule; skipping dNBR.", pre_fire_date)
+
+        common_kwargs = dict(
+            userpts_csv=points_csv_file,
+            processed_nc=nc_file,
+            cldmask_nc=cldmask_file,
+            landmask_nc=landcover_mask_file,
+            band_list=[b for b in self.full_band_list if b != 'true_color'] or None,
+            nbr_bands=self.nbr_bands,
+            ndvi_bands=self.ndvi_bands,
+            dnbr_array=dnbr_array,
+            area_def=self.satpy_area_def,
+            min_area_pixels=min_area_pixels,
+        )
 
         if method == 'eucl':
-            burnmask = classify_pixels_eucl(
-                userpts_csv=points_csv_file,
-                processed_nc=nc_file,
-                cldmask_nc=cldmask_file,
-                landmask_nc=landcover_mask_file,
-                area_def=self.satpy_area_def
-            ) 
+            burnmask, confidence_ds = classify_pixels_eucl(**common_kwargs)
+        elif method in ('rf', 'svm'):
+            from fhba.ml_classifier import classify_pixels_ml
+            burnmask, confidence_ds = classify_pixels_ml(
+                method=method, **common_kwargs, **clf_kwargs)
+        else:
+            raise NotImplementedError(f"Classification method '{method}' not implemented. "
+                                      f"Choose from 'eucl', 'rf', or 'svm'.")
 
-        else: 
-            raise NotImplementedError(f"Classification method {method} not implemented.")
-
-        return burnmask
+        return burnmask, confidence_ds
 
     def prepare_data(self,date):
         """Prepare data for a given date by downloading and preprocessing granules."""
