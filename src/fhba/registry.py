@@ -94,6 +94,9 @@ class GranuleManager:
             self.userpts_by_date = {}
         if burnmasks_by_date is None:
             self.burnmasks_by_date = {}
+            # NOTE 4/8/2026 build this as a dict of dicts where the top level key is 
+            # the method (e.g., SVM / RF / EUCL) and the sub-key is the date. This will
+            # allow for tracking the different methods
 
     def classify_pixels(self,date,method='eucl',landcover_mask_file=None,
                         min_area_pixels=5, pre_fire_date=None, **clf_kwargs):
@@ -161,20 +164,31 @@ class GranuleManager:
 
         return burnmask, confidence_ds
     
-    def aggregate_burnmasks(self, out_file=None):
+    def aggregate_burnmasks(self, out_file=None, method='eucl',ytd_cutoff=None):
         """Union all finalized burn masks into a single seasonal burn map.
         Parameters
         ----------
         out_file : str, optional
             Output GeoTIFF path. Defaults to
             ``<burnmask_dir>/<satellite>_<spatial>_seasonal_burnmask.tif``.
+        method : str, default 'eucl'
+            Specify which classification method's burnmasks to aggregate (e.g., 'eucl', 
+            'rf', 'svm'). Must match the key used in `self.gm.burnmask_by_date`. 
+        ytd_cutoff : str, optional
+            If provided, only burn masks from dates up to and including the cutoff date
+            will be included in the YTD aggregation.
+
         Returns
         -------
         str
             Path to the written seasonal burn map GeoTIFF.
         """
         import rioxarray as rxr
-        burnmask_files = getattr(self, 'burnmask_by_date', {})
+        # burnmask_files = getattr(self, 'burnmask_by_date', {})
+        print(f"__ AGGREGATE_BURNMASKS DEBUG__ ")
+        print(f"{self.burnmask_by_date = }")
+        print(f"{ytd_cutoff = }")
+        burnmask_files = self.burnmask_by_date.get(method, {})
         if not burnmask_files:
             raise ValueError("No finalized burn masks found. Run export_burnmask for at least one date first.")
         
@@ -182,11 +196,21 @@ class GranuleManager:
         print(burnmask_files)
 
         arrays = []
+        dates = []
+
+        if ytd_cutoff == 'None' or ytd_cutoff is None:
+            print("NO YTD CUTOFF SPECIFIED: INCLUDING ALL DATES IN AGGREGATION")
+            ytd_cutoff = pd.Timestamp(self.end_date)  # effectively include all dates up to end_date
+
         for date, path in sorted(burnmask_files.items()):
-            if path and os.path.exists(path):
-                da = rxr.open_rasterio(path).squeeze()
-                da = da.expand_dims(dim={'time': [date]})
-                arrays.append(da)
+            if pd.to_datetime(date) <= pd.to_datetime(ytd_cutoff):
+                if path and os.path.exists(path):
+                    da = rxr.open_rasterio(path).squeeze()
+                    da = da.expand_dims(dim={'time': [date]})
+                    arrays.append(da)
+                    dates.append(pd.to_datetime(date))
+            else:
+                print(f"Skipping {date} (YTD cutoff: {ytd_cutoff})")
         if not arrays:
             raise ValueError("Burn mask files listed in registry do not exist on disk.")
 
@@ -195,10 +219,11 @@ class GranuleManager:
 
         if out_file is None:
             os.makedirs(self.burnmask_dir, exist_ok=True)
+            final_date = max(dates).strftime("%Y-%m-%d")
             year = self.start_date.split('-')[0]
             out_file = os.path.join(
                 self.burnmask_dir,
-                f"{self.satellite_name}_{self.spatial_name}_{year}_seasonal_burnmask.tif")
+                f"{self.satellite_name}_{self.spatial_name}_{method}_{final_date}_YTD.tif")
         seasonal.rio.to_raster(out_file)
         logger.info("Seasonal burn map written to %s", out_file)
         return out_file

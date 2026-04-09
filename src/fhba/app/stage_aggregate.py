@@ -1,4 +1,5 @@
 import os
+import re
 
 import pandas as pd
 import panel as pn
@@ -14,36 +15,13 @@ class StageAggregate(param.Parameterized):
     registry = param.Parameter()
     gm = param.Parameter()
 
-    @param.depends('year', 'satellite', 'registry', 'gm')
-    def view(self):
+    def get_widgets(self):
 
-        instr = get_instructions("07_instr_aggregate.md", instr_width=250)
-
-        # ── Status table ───────────────────────────────────────────────────────
-        gm_df = self.gm.to_df().reset_index()
-        gm_df = gm_df.rename(columns={'index': 'date'})
-        categorized = gm_df[gm_df['categorization_status'] == 'Categorized']
-        n_ready = len(categorized)
-
-        status_md = pn.pane.Markdown(
-            f"**{n_ready} burn mask(s) ready for aggregation.**\n\n" +
-            ("No burn masks found. Please complete Stage 6 for at least one date first."
-             if n_ready == 0 else ""),
-            width=600
-        )
-
-        table = pn.pane.DataFrame(
-            categorized[['date', 'categorization_status']].reset_index(drop=True),
-            index=False,
-            width=400
-        )
-
-        # ── Controls ───────────────────────────────────────────────────────────
         generate_button = pn.widgets.Button(
             name="Generate Seasonal Burn Map",
             button_type="primary",
             width=220,
-            disabled=(n_ready == 0)
+            # disabled=True
         )
 
         compute_stats_button = pn.widgets.Button(
@@ -65,6 +43,54 @@ class StageAggregate(param.Parameterized):
             visible=False, value=False
         )
 
+         # Classification method selector
+        method_selector = pn.widgets.Select(
+            name="Classification Method",
+            options=['eucl', 'rf', 'svm'],
+            value='eucl',
+            width=120,
+        )
+
+        ytd_selector = pn.widgets.DatePicker(
+            name='YTD Cutoff Date',
+            enabled_dates=list(pd.date_range(
+                start=f"{self.year}-02-15", 
+                end=f"{self.year}-05-15",
+                freq='D'
+            ).strftime("%Y-%m-%d")),
+        )
+
+        return generate_button, compute_stats_button, download_stats_button, loading, method_selector,ytd_selector
+
+    @param.depends('year', 'satellite', 'registry', 'gm')
+    def view(self):
+
+        instr = get_instructions("07_instr_aggregate.md", instr_width=250)
+
+        
+        # -- Status table -------------------------------------------------------
+        gm_df = self.gm.to_df().reset_index()
+        gm_df = gm_df.rename(columns={'index': 'date'})
+        categorized = gm_df[gm_df['categorization_status'] == 'Categorized']
+        n_ready = len(categorized)
+
+        status_md = pn.pane.Markdown(
+            f"**{n_ready} burn mask(s) ready for aggregation.**\n\n" +
+            ("No burn masks found. Please complete Stage 6 for at least one date first."
+             if n_ready == 0 else ""),
+            width=600
+        )
+
+        table = pn.pane.DataFrame(
+            categorized[['date', 'categorization_status']].reset_index(drop=True),
+            index=False,
+            width=400
+        )
+
+        # -- Controls -----------------------------------------------------------
+        generate_button, compute_stats_button, download_stats_button, loading, method_selector, ytd_selector = self.get_widgets()
+
+
         result_md = pn.pane.Markdown("", width=600)
         stats_table = pn.pane.DataFrame(pd.DataFrame(), index=False, width=600)
 
@@ -77,7 +103,11 @@ class StageAggregate(param.Parameterized):
             result_md.object = ""
 
             try:
-                seasonal_file = self.gm.aggregate_burnmasks()
+                method = method_selector.value
+                seasonal_file = self.gm.aggregate_burnmasks(
+                    method=method,
+                    ytd_cutoff=str(ytd_selector.value)
+                    )
                 _state['seasonal_file'] = seasonal_file
                 result_md.object = (
                     f"✅ Seasonal burn map saved to:\n\n`{seasonal_file}`"
@@ -102,10 +132,13 @@ class StageAggregate(param.Parameterized):
             loading.value = True
             loading.visible = True
 
+            file_date = re.search(r'(\d{4}-\d{2}-\d{2})', _state['seasonal_file'])
+            date_str = file_date.group(1) if file_date else "unknown date"
+
             try:
                 gdf = self.gm.compute_burn_area_by_county(_state['seasonal_file'])
 
-                print("== Burned area by county ==")
+                print(f"== Burned area by county through {date_str} ==")
                 print(f"{gdf =}")
 
 
@@ -131,10 +164,10 @@ class StageAggregate(param.Parameterized):
                 download_stats_button.visible = True
 
                 total_km2 = gdf.loc[gdf['county_name'] == 'Total', 'burned_area_km2'].iloc[0]
-                total_acres = stats_df['burned_area_acres'].sum()
+                total_acres = sgdf.loc[gdf['county_name'] == 'Total', 'burned_area_acres'].iloc[0]
                 result_md.object += (
-                    f"\n\n**Total burned area:** {total_km2:.1f} km²  "
-                    f"({total_acres:,.0f} acres)"
+                    f"\n\n**Total burned area (through {date_str}):** {total_acres:,.0f} acres  "
+                    f"({total_km2:.1f} km²)"
                 )
 
                 pn.state.notifications.success("County statistics computed.", duration=5000)
@@ -165,10 +198,13 @@ class StageAggregate(param.Parameterized):
                 status_md,
                 table,
                 pn.layout.Divider(),
-                pn.Row(generate_button, compute_stats_button),
+                pn.Column(
+                    pn.Row(ytd_selector,method_selector),
+                    pn.Row(generate_button, compute_stats_button),
+                ),
                 loading,
                 result_md,
-                pn.pane.Markdown("### Burned Area by County"),
+                pn.pane.Markdown(f"### Burned Area by County)"),
                 stats_table,
                 download_stats_button,
                 margin=(40, 10), sizing_mode='stretch_both',

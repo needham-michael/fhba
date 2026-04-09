@@ -307,8 +307,24 @@ class StageClassify(param.Parameterized):
                 if getattr(self.gm, 'burnmask_by_date', None) is None:
                     self.gm.burnmask_by_date = {}
 
-                self.gm.burnmask_by_date[date] = burnmask_final_file
-                self.gm.update_categorization_status(date, "Categorized")
+                print("\n\n\n__ BURNMASK DEBUG __")
+                print(f"{method =}")
+                print(f"{self.gm.burnmask_by_date = }")
+
+                val = getattr(self.gm.burnmask_by_date, method, None)
+                print(f"{val = }")
+
+                if self.gm.burnmask_by_date.get(method) is None:
+                    self.gm.burnmask_by_date[method] = {}
+
+                # self.gm.burnmask_by_date[date] = burnmask_final_file
+                self.gm.burnmask_by_date[method][date] = burnmask_final_file
+
+                print(f"{self.gm.burnmask_by_date = }") # DEBUG statement
+                # NOTE 4/8/2026 implement this using the nested dict approach as described
+                # further in the registry.py file. Something like the following:
+                # self.gm.burnmask_by_date[method][date] = burnmask_final_file
+                # self.gm.update_categorization_status(date, "Categorized")
                 self.registry.save_json()
                 pn.state.notifications.success(f"Burnmask exported successfully for date {date}.",duration=6000)
 
