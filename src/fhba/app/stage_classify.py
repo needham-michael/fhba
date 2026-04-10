@@ -302,7 +302,7 @@ class StageClassify(param.Parameterized):
                         print(geom)
                         ds = ds.rio.clip(geometries=[geom],invert=True,drop=False)
 
-                ds.rio.to_raster(burnmask_final_file)
+                ds.clip(0,1).rio.to_raster(burnmask_final_file)
 
                 if getattr(self.gm, 'burnmask_by_date', None) is None:
                     self.gm.burnmask_by_date = {}
