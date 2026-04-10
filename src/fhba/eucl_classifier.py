@@ -9,6 +9,23 @@ from sklearn.metrics import euclidean_distances
 
 from fhba.image import nonlinear_enhancement
 
+# Number of pixels processed per chunk when computing pairwise distances.
+# Keeps peak memory for the distance matrix at ~chunk * n_train_pts * 4 bytes
+# (e.g. 250 000 × 37 × 4 ≈ 37 MB) instead of the full scene at once.
+_DIST_CHUNK = 250_000
+
+
+def _mean_eucl_dist_chunked(X_arr, Y_arr):
+    """Mean Euclidean distance from each row of X to every row of Y, in chunks."""
+    n = len(X_arr)
+    out = np.empty(n, dtype=np.float32)
+    for start in range(0, n, _DIST_CHUNK):
+        end = min(start + _DIST_CHUNK, n)
+        out[start:end] = np.mean(
+            euclidean_distances(X_arr[start:end], Y_arr), axis=1
+        ).astype(np.float32)
+    return out
+
 logger = logging.getLogger(__name__)
 
 
@@ -80,6 +97,9 @@ def get_cloudmask(cldmask_nc, threshold=0.80):
     Supports two cloud mask formats:
     * ``Clear_Sky_Confidence`` (VIIRS / MODIS L2): continuous score in [0, 1];
       pixels with score >= *threshold* are treated as clear.
+    * ``cloud_mask`` + optional ``cloud_shadow`` (MODIS MOD35/MYD35 direct HDF):
+      cloud and shadow pixels are dilated separately; shadow gets a wider buffer
+      because MODIS shadows are spatially offset from the parent cloud.
     * ``Fmask`` (Landsat HLS): uint8 bit-field; bits 1 (cloud), 2 (adjacent
       cloud) and 3 (cloud shadow) indicate contaminated pixels — clear when
       all three bits are zero (``Fmask & 0x0E == 0``).
@@ -88,14 +108,26 @@ def get_cloudmask(cldmask_nc, threshold=0.80):
         if 'Clear_Sky_Confidence' in ds_cldmask:
             cldmask = ds_cldmask['Clear_Sky_Confidence'] >= threshold
         elif 'cloud_mask' in ds_cldmask:
-            # MODIS MOD35/MYD35 L2: 2-bit values 0=Cloudy, 1=Uncertain,
-            # 2=Probably Clear, 3=Confident Clear
-            # NaN = outside swath coverage; treat as clear so off-swath areas are not masked out.
-            cldmask = ds_cldmask['cloud_mask'].fillna(3) >= 2
-            # Also mask cloud shadow pixels from MOD09GA State_1km bit 2.
-            # NaN = outside tile coverage; treat as no shadow.
+            # MODIS MOD35/MYD35: 2-bit values 0=Cloudy, 1=Uncertain,
+            # 2=Probably Clear, 3=Confident Clear.
+            # NaN = outside swath coverage; treat as clear.
+            cloud_arr = (ds_cldmask['cloud_mask'].fillna(3) >= 2).values
+            ref_da = ds_cldmask['cloud_mask']
             if 'cloud_shadow' in ds_cldmask:
-                cldmask = cldmask & (ds_cldmask['cloud_shadow'].fillna(0) == 0)
+                # Dilate cloud and shadow pixels separately.
+                # Shadow gets 10 iterations (~5 km at 500 m/px) because MODIS
+                # cloud shadows are often offset far from the cloud itself and
+                # are frequently misclassified as burns without a wider buffer.
+                # Clouds get 4 iterations (~2 km) for semi-transparent edges.
+                shadow_arr = (ds_cldmask['cloud_shadow'].fillna(0) == 0).values
+                cloud_dilated  = binary_dilation(~cloud_arr,  iterations=6)
+                shadow_dilated = binary_dilation(~shadow_arr, iterations=20)
+                clear_arr = ~cloud_dilated & ~shadow_dilated
+                cldmask = xr.DataArray(clear_arr, coords=ref_da.coords, dims=ref_da.dims)
+            else:
+                cloud_dilated = binary_dilation(~cloud_arr, iterations=4)
+                cldmask = xr.DataArray(~cloud_dilated, coords=ref_da.coords, dims=ref_da.dims)
+            return cldmask
         elif 'Fmask' in ds_cldmask:
             # Fill NaN (no-data) with 0xFF so all cloud bits are set → cloudy
             fmask = ds_cldmask['Fmask'].fillna(255).astype(int)
@@ -104,8 +136,7 @@ def get_cloudmask(cldmask_nc, threshold=0.80):
             raise KeyError(
                 f"Cloud mask file '{cldmask_nc}' contains neither "
                 "'Clear_Sky_Confidence', 'cloud_mask', nor 'Fmask'.")
-        # Apply more aggressive dilation (4 iterations instead of 2) to better mask cloud shadows
-        # This expands masked areas by ~4 pixels to catch semi-transparent cloud edges
+        # General dilation for VIIRS / Landsat: 4 pixels to catch cloud edges
         inverted = 1 - cldmask
         for _ in range(4):
             inverted = binary_dilation(inverted)
@@ -279,8 +310,8 @@ def classify_pixels_eucl(
             Xbrn = Xbrn.fillna(0).replace([np.inf, -np.inf], 0)
             Xunb = Xunb.fillna(0).replace([np.inf, -np.inf], 0)
 
-            dist2brn = np.mean(euclidean_distances(X=Xfull_clean, Y=Xbrn), axis=1)
-            dist2unb = np.mean(euclidean_distances(X=Xfull_clean, Y=Xunb), axis=1)
+            dist2brn = _mean_eucl_dist_chunked(Xfull_clean.values, Xbrn.values)
+            dist2unb = _mean_eucl_dist_chunked(Xfull_clean.values, Xunb.values)
 
             # Force no-data pixels to unburned regardless of distance result
             Xfull['isBurned'] = (dist2brn < dist2unb) & ~nodata_mask.values

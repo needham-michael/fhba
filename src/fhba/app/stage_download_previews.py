@@ -40,7 +40,7 @@ class StageDownloadPreviews(param.Parameterized):
 
             # Filter out future dates — Worldview API cannot provide data for future dates
             today = pd.Timestamp.today().normalize()
-            full_date_range = full_date_range[full_date_range <= today]
+            full_date_range = full_date_range[full_date_range <= today - pd.Timedelta(days=1)]
             
             if len(full_date_range) == 0:
                 pn.state.notifications.warning(

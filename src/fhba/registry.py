@@ -141,6 +141,113 @@ def _resample_mod09ga_shadow(mod09ga_files, satpy_area_def):
     )
 
 
+# ── Geometric cloud shadow from solar angles ──────────────────────────────────
+def _compute_geometric_cloud_shadow(cloud_mask_da, mod03_hdf_files, satpy_area_def,
+                                    cloud_height_m=3000):
+    """Estimate cloud shadow positions from solar geometry stored in MOD03 files.
+
+    For each cloudy pixel the shadow falls on the ground at a distance of
+    ``cloud_height * tan(solar_zenith)`` in the direction opposite to the sun
+    (``solar_azimuth + 180°``).  Scene-mean zenith and azimuth are used, which
+    is a good approximation over the ~300 km Flint Hills domain.
+
+    Parameters
+    ----------
+    cloud_mask_da : xr.DataArray
+        Resampled cloud mask on the target grid (0=Cloudy … 3=Clear; NaN=off-swath).
+    mod03_hdf_files : list of str
+        MYD03/MOD03 geolocation HDF files containing SolarZenith and SolarAzimuth.
+    satpy_area_def : pyresample.AreaDefinition
+        Target output grid.
+    cloud_height_m : float
+        Assumed cloud-top height in metres (default 3 000 m — typical cumulus).
+
+    Returns
+    -------
+    xr.DataArray or None
+        Shadow mask on the target grid (1 = shadow, 0 = clear), or None if
+        solar angles could not be read or sun is below the horizon.
+    """
+    from pyhdf.SD import SD, SDC
+    from pyresample.geometry import SwathDefinition
+    from pyresample.kd_tree import resample_nearest
+    from scipy.ndimage import shift as nd_shift
+
+    zen_list, az_list, lat_list, lon_list = [], [], [], []
+    for path in mod03_hdf_files:
+        bn = os.path.basename(path)
+        try:
+            h   = SD(path, SDC.READ)
+            lat = h.select('Latitude').get().astype(np.float32)
+            lon = h.select('Longitude').get().astype(np.float32)
+            # SolarZenith and SolarAzimuth are stored as int16 × 0.01 = degrees
+            zen = h.select('SolarZenith').get().astype(np.float32)  * 0.01
+            az  = h.select('SolarAzimuth').get().astype(np.float32) * 0.01
+            h.end()
+            zen_list.append(zen);  az_list.append(az)
+            lat_list.append(lat);  lon_list.append(lon)
+        except Exception as exc:
+            logger.warning("Could not read solar angles from %s: %s", bn, exc)
+
+    if not zen_list:
+        logger.warning("No MOD03 solar angles available — geometric shadow skipped.")
+        return None
+
+    zen_all = np.vstack(zen_list)
+    az_all  = np.vstack(az_list)
+    lat_all = np.vstack(lat_list)
+    lon_all = np.vstack(lon_list)
+
+    # Resample solar angles to the target grid
+    swath = SwathDefinition(lons=lon_all, lats=lat_all)
+    x_coords, y_coords = satpy_area_def.get_proj_vectors()
+
+    def _resamp(data):
+        return resample_nearest(swath, data, satpy_area_def,
+                                radius_of_influence=2000,
+                                fill_value=np.nan).astype(np.float32)
+
+    zen_grid = _resamp(zen_all)
+    az_grid  = _resamp(az_all)
+
+    mean_zen = float(np.nanmean(zen_grid))
+    mean_az  = float(np.nanmean(az_grid))
+
+    if mean_zen >= 85.0:
+        logger.warning("Solar zenith %.1f° — sun near/below horizon, shadow skipped.", mean_zen)
+        return None
+
+    # Ground-plane shadow displacement
+    shadow_dist_m = cloud_height_m * np.tan(np.radians(mean_zen))
+
+    # Shadow falls in the direction opposite to the sun
+    shadow_az_rad = np.radians(mean_az + 180.0)
+
+    # Pixel size (metres).  y_coords descend northward, so row 0 = north.
+    px = abs(float(x_coords[1] - x_coords[0]))
+    py = abs(float(y_coords[0] - y_coords[1]))
+
+    dcol =  shadow_dist_m * np.sin(shadow_az_rad) / px   # east  → +col
+    drow = -shadow_dist_m * np.cos(shadow_az_rad) / py   # north → -row (row 0 = north)
+
+    print(f"  Geometric shadow: zenith={mean_zen:.1f}° azimuth={mean_az:.1f}° "
+          f"height={cloud_height_m}m  distance={shadow_dist_m/1000:.1f}km  "
+          f"shift=({drow:+.1f}rows, {dcol:+.1f}cols)")
+
+    # Binary cloud mask — pixels flagged cloudy (0) or uncertain (1)
+    cloud_arr   = cloud_mask_da.values
+    cloud_bin   = ((cloud_arr < 2) & ~np.isnan(cloud_arr)).astype(np.float32)
+
+    # Shift cloud footprint to shadow position using nearest-neighbour
+    shadow_shifted = nd_shift(cloud_bin, shift=(drow, dcol),
+                              order=0, mode='constant', cval=0.0)
+
+    shadow_out = (shadow_shifted > 0.5).astype(np.float32)
+
+    return xr.DataArray(shadow_out, dims=['y', 'x'],
+                        coords={'y': y_coords, 'x': x_coords})
+
+
 # ── MODIS cloud mask extraction (direct from HDF, bypassing Satpy) ────────────
 def _resample_modis_cloud_fields(mod35_hdf_files, mod03_hdf_files, satpy_area_def):
     """Extract cloud quality and shadow flag from MOD35_L2 HDF files.
@@ -1262,14 +1369,23 @@ class GranuleManager:
                     try:
                         _tc = scene_regional['true_color']
                         if _tc is not None:
-                            # Convert Satpy DataArray to xarray, reshape to (bands, y, x)
-                            _tc_da = xr.DataArray(
-                                _tc.values.transpose(2, 0, 1) if _tc.values.ndim == 3 else _tc.values,
-                                dims=['bands', 'y', 'x'] if _tc.values.ndim == 3 else _tc.dims,
-                                coords={'bands': [0, 1, 2], 'y': _tc.y, 'x': _tc.x} if _tc.values.ndim == 3
-                                       else _tc.coords,
-                                name='true_color'
-                            )
+                            _tc_vals = _tc.values
+                            if _tc_vals.ndim == 3:
+                                # Satpy true_color dims are ('bands', 'y', 'x').
+                                # Only transpose if bands happens to be the last dim.
+                                if hasattr(_tc, 'dims') and _tc.dims[-1] == 'bands':
+                                    _tc_vals = _tc_vals.transpose(2, 0, 1)
+                                _tc_da = xr.DataArray(
+                                    _tc_vals,
+                                    dims=['bands', 'y', 'x'],
+                                    coords={'bands': [0, 1, 2], 'y': _tc.y, 'x': _tc.x},
+                                    name='true_color'
+                                )
+                            else:
+                                _tc_da = xr.DataArray(
+                                    _tc_vals, dims=_tc.dims, coords=_tc.coords,
+                                    name='true_color'
+                                )
                     except Exception as _tc_e:
                         logger.warning("Could not extract true_color composite: %s", _tc_e)
 
@@ -1319,22 +1435,17 @@ class GranuleManager:
                     print(f"Loading cloud mask granules for {date}")
                     # Landsat HLS: cloud mask is Fmask band in the same hls_l30
                     # product; VIIRS/MODIS use a separate L2 cloud mask product.
+                    _use_satpy_cldmask = True
                     if self.instrument == 'landsat':
                         _cld_reader = 'hls_l30'
                         _cld_band = 'Fmask'
                     elif self.instrument == 'modis':
-                        # MODIS MOD35/MYD35 L2: Satpy exposes the cloud
-                        # determination as 'cloud_mask' (2-bit values 0-3).
-                        # modis_l2 reader requires MOD03 geolocation files to
-                        # properly georeference MOD35 data; include them from
-                        # the already-downloaded reflectance granules.
-                        _cld_reader = 'modis_l2'
-                        _cld_band = 'cloud_mask'
+                        # Satpy's modis_l2 reader does not recognise NRT HDF filenames
+                        # (*.NRT.hdf). Bypass Satpy entirely and write the cloud mask
+                        # NetCDF directly from pyhdf via _resample_modis_cloud_fields.
+                        _use_satpy_cldmask = False
                         # Deduplicate MOD35 files: for each acquisition time
-                        # (AYYYYDDD.HHMM) keep only the standard collection
-                        # (.061.) and discard NRT duplicates. Mixed NRT+standard
-                        # granules cause Satpy to stack arrays with mismatched
-                        # scan-line counts, producing a dask chunk shape error.
+                        # (AYYYYDDD.HHMM) prefer the standard collection (.061.) over NRT.
                         import re as _re2
                         _mod35_dedup: dict = {}
                         _non_mod35 = []
@@ -1354,28 +1465,6 @@ class GranuleManager:
                             else:
                                 _non_mod35.append(_f)
                         cloud_mask_files = list(_mod35_dedup.values()) + _non_mod35
-                        geo_files = [f for f in granule_files if os.path.basename(f).startswith(('MOD03', 'MYD03'))]
-                        cloud_mask_files = cloud_mask_files + geo_files
-                    else:
-                        # VIIRS L2 cloud mask: continuous confidence in [0, 1]
-                        _cld_reader = f"{self.instrument}_l2"
-                        _cld_band = 'Clear_Sky_Confidence'
-                    cloud_mask_scene_full = Scene(filenames=cloud_mask_files, reader=_cld_reader)
-                    cloud_mask_scene_full.load([_cld_band])
-                    print(f"Resampling cloud mask using '{resampler}' resampler...")
-                    cloud_mask_scene_regional = cloud_mask_scene_full.resample(self.satpy_area_def, resampler=resampler)
-                    cloud_mask_scene_regional.load([_cld_band])
-                    cloud_mask_scene_regional.save_datasets(
-                        filename=cloud_mask_nc_file, writer='cf'
-                    )
-                    # For MODIS:
-                    # 1. Replace Satpy's cloud_mask (which outputs the determined/not
-                    #    flag rather than the quality field) with values extracted
-                    #    directly from the raw MOD35 HDF.
-                    # 2. Append cloud_shadow from MOD09GA State_1km bit 2, which is
-                    #    the authoritative MODIS cloud shadow flag (MOD35 byte 1 bit 2
-                    #    is terrain/snow obstruction, not cloud shadow).
-                    if self.instrument == 'modis':
                         _mod03_files = [f for f in granule_files
                                         if os.path.basename(f).startswith(('MOD03', 'MYD03'))
                                         and f.endswith('.hdf')]
@@ -1383,24 +1472,41 @@ class GranuleManager:
                             cloud_mask_files, _mod03_files, self.satpy_area_def)
                         _shadow_da = _resample_mod09ga_shadow(
                             mod09ga_files, self.satpy_area_def)
-                        _updates = {}
+                        _cld_writes = {}
                         if _cloud_fields is not None:
-                            _updates['cloud_mask'] = _cloud_fields['cloud_mask']
+                            _cld_writes['cloud_mask'] = _cloud_fields['cloud_mask']
                         if _shadow_da is not None:
-                            _updates['cloud_shadow'] = _shadow_da
+                            _cld_writes['cloud_shadow'] = _shadow_da
                             print(f"MOD09GA shadow: {float((_shadow_da == 1).mean()) * 100:.1f}% shadow pixels")
-                        if _updates:
-                            try:
-                                _tmp = cloud_mask_nc_file + '.shadow_tmp'
-                                with xr.open_dataset(cloud_mask_nc_file) as _cds:
-                                    _cds2 = _cds.assign(_updates).load()
-                                _cds2.to_netcdf(_tmp)
-                                _cds2.close()
-                                os.replace(_tmp, cloud_mask_nc_file)
-                                print("Patched cloud mask NC with MOD35 cloud_mask and MOD09GA cloud_shadow.")
-                            except Exception as _sh_exc:
-                                logger.warning(
-                                    "Could not patch cloud mask NC: %s", _sh_exc)
+                        elif _cloud_fields is not None:
+                            # MOD09GA not yet available — fall back to geometric
+                            # shadow projection using solar angles from MOD03.
+                            _shadow_da = _compute_geometric_cloud_shadow(
+                                _cloud_fields['cloud_mask'], _mod03_files,
+                                self.satpy_area_def)
+                            if _shadow_da is not None:
+                                _cld_writes['cloud_shadow'] = _shadow_da
+                                print(f"Geometric shadow: "
+                                      f"{float((_shadow_da == 1).mean()) * 100:.1f}% shadow pixels")
+                            else:
+                                print("Could not compute geometric shadow — cloud_shadow omitted.")
+                        if _cld_writes:
+                            os.makedirs(os.path.dirname(cloud_mask_nc_file), exist_ok=True)
+                            xr.Dataset(_cld_writes).to_netcdf(cloud_mask_nc_file)
+                            print("Wrote MODIS cloud mask NetCDF from direct HDF extraction.")
+                    else:
+                        # VIIRS L2 cloud mask: continuous confidence in [0, 1]
+                        _cld_reader = f"{self.instrument}_l2"
+                        _cld_band = 'Clear_Sky_Confidence'
+                    if _use_satpy_cldmask:
+                        cloud_mask_scene_full = Scene(filenames=cloud_mask_files, reader=_cld_reader)
+                        cloud_mask_scene_full.load([_cld_band])
+                        print(f"Resampling cloud mask using '{resampler}' resampler...")
+                        cloud_mask_scene_regional = cloud_mask_scene_full.resample(self.satpy_area_def, resampler=resampler)
+                        cloud_mask_scene_regional.load([_cld_band])
+                        cloud_mask_scene_regional.save_datasets(
+                            filename=cloud_mask_nc_file, writer='cf'
+                        )
                     self.processed_cloud_masks_by_date[date] = cloud_mask_nc_file
                     self.update_processing_status(date, True)
         return

@@ -156,9 +156,13 @@ def classify_pixels_ml(
             y_train = np.array([1] * len(Xbrn) + [0] * len(Xunb))
 
             # ── Scale features ─────────────────────────────────────────────────
+            # Process in chunks so StandardScaler never creates a full float64
+            # copy of the ~24 GB pixel matrix (it would double memory usage).
+            _CHUNK = 250_000
             scaler = StandardScaler()
             X_train_scaled = scaler.fit_transform(X_train)
-            Xfull_scaled   = scaler.transform(Xfull_clean)
+            Xfull_arr = Xfull_clean.values  # float32 numpy array, (n_pixels, n_bands)
+            n_pixels = len(Xfull_arr)
 
             # ── Train & predict ────────────────────────────────────────────────
             if method == "rf":
@@ -166,19 +170,27 @@ def classify_pixels_ml(
                 defaults.update(clf_kwargs)
                 clf = RandomForestClassifier(**defaults)
                 clf.fit(X_train_scaled, y_train)
-                y_pred = clf.predict(Xfull_scaled)
-                # Probability of the burned class (index 1)
                 class_idx = list(clf.classes_).index(1)
-                confidence_vals = clf.predict_proba(Xfull_scaled)[:, class_idx]
+                y_pred = np.empty(n_pixels, dtype=bool)
+                confidence_vals = np.empty(n_pixels, dtype=np.float32)
+                for start in range(0, n_pixels, _CHUNK):
+                    end = min(start + _CHUNK, n_pixels)
+                    chunk_scaled = scaler.transform(Xfull_arr[start:end]).astype(np.float32)
+                    y_pred[start:end] = clf.predict(chunk_scaled).astype(bool)
+                    confidence_vals[start:end] = clf.predict_proba(chunk_scaled)[:, class_idx]
 
             else:  # svm
                 defaults = dict(kernel='rbf', C=1.0, probability=False)
                 defaults.update(clf_kwargs)
                 clf = SVC(**defaults)
                 clf.fit(X_train_scaled, y_train)
-                y_pred = clf.predict(Xfull_scaled)
-                # Signed distance from the decision boundary
-                confidence_vals = clf.decision_function(Xfull_scaled)
+                y_pred = np.empty(n_pixels, dtype=bool)
+                confidence_vals = np.empty(n_pixels, dtype=np.float32)
+                for start in range(0, n_pixels, _CHUNK):
+                    end = min(start + _CHUNK, n_pixels)
+                    chunk_scaled = scaler.transform(Xfull_arr[start:end]).astype(np.float32)
+                    y_pred[start:end] = clf.predict(chunk_scaled).astype(bool)
+                    confidence_vals[start:end] = clf.decision_function(chunk_scaled)
 
             logger.info(
                 "ML classifier (%s): %d burned / %d unburned pixels predicted.",
