@@ -54,7 +54,8 @@ class StageSetup(param.Parameterized):
     @param.depends('year','satellite_full')
     def view(self):
 
-        instr = get_instructions("01_instr_select_sat.md", instr_width=800)
+        instr = get_instructions(
+            "01_instr_select_sat.md", instr_width=800, as_card=False)
 
         pane = pn.Column(
             instr,
@@ -69,18 +70,21 @@ class StageSetup(param.Parameterized):
         return pn.Row(self.view,)
 
 def build_app():
-    
-    pipeline_daily = pn.pipeline.Pipeline(debug=True)
-    pipeline_daily.add_stage(name="Select Instrument",stage=StageSetup)
-    pipeline_daily.add_stage(name="Download Previews",stage=StageDownloadPreviews)
-    pipeline_daily.add_stage(name="Sort Images",stage=StagePreviewImages)
-    pipeline_daily.add_stage(name="Download Granules",stage=StageDownloadGranules)
-    pipeline_daily.add_stage(name="Analyze Pixels",stage=StageAnalyze)
-    pipeline_daily.add_stage(name="Categorize",stage=StageClassify)
 
-    pipeline_ytd = pn.pipeline.Pipeline(debug=True)
-    pipeline_ytd.add_stage(name="Select Instrument",stage=StageSetup)
-    pipeline_ytd.add_stage(name="Aggregate Burn Masks",stage=StageAggregate)
+    pipeline_download = pn.pipeline.Pipeline(debug=True)
+    pipeline_download.add_stage(name="Select Instrument",stage=StageSetup)
+    pipeline_download.add_stage(name="Download Previews",stage=StageDownloadPreviews)
+    pipeline_download.add_stage(name="Sort Images",stage=StagePreviewImages)
+    pipeline_download.add_stage(name="Download Granules",stage=StageDownloadGranules)
+    
+    pipeline_classify = pn.pipeline.Pipeline(debug=True)
+    pipeline_classify.add_stage(name="Select Instrument",stage=StageSetup)
+    pipeline_classify.add_stage(name="Analyze Pixels",stage=StageAnalyze)
+    pipeline_classify.add_stage(name="Categorize",stage=StageClassify)
+
+    pipeline_aggregate = pn.pipeline.Pipeline(debug=True)
+    pipeline_aggregate.add_stage(name="Select Instrument",stage=StageSetup)
+    pipeline_aggregate.add_stage(name="Aggregate Burn Masks",stage=StageAggregate)
 
     # Placeholder for tab setup to separate YTD burn mask aggregation and stats
     with open("README.md") as f:
@@ -90,9 +94,11 @@ def build_app():
         pn.pane.Markdown("# Flint Hills Burned Area (FHBA) Mapping Tool"),
         pn.layout.Divider(),
         pn.Tabs(
-            ("Daily Images",pipeline_daily),
-            ("YTD Burn Mask",pipeline_ytd),
             ("README",pn.pane.Markdown(readme_md, width=800)),
+            ("1. Download Granules",pipeline_download),
+            ("2. Classify Pixels",pipeline_classify),
+            ("3. Aggregate YTD Burn Masks",pipeline_aggregate),
+            tabs_location='above',
     )
     )
         

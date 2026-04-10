@@ -47,6 +47,12 @@ class StageClassify(param.Parameterized):
     @param.depends('year','satellite','registry','gm')
     def view(self):
         instr = get_instructions("06_eucl_categ.md",instr_width=250)
+        instr.objects += [
+                pn.pane.Alert(
+                    "Tip: If many spurious small burned pixels appear, try increasing "
+                    "unburned training points near those features.",
+                    sizing_mode='stretch_width', alert_type='warning')
+            ]
 
         table, gm_df = self.table_pane(return_df=True)
 
@@ -333,15 +339,7 @@ class StageClassify(param.Parameterized):
         export_burnmask_button.on_click(export_burnmask)
 
         pane = pn.Row(
-            pn.Column(
-                instr,
-                pn.pane.Alert(
-                    "Tip: If many spurious small burned pixels appear, try increasing "
-                    "unburned training points near those features.",
-                    sizing_mode='stretch_width', alert_type='warning', width=250),
-                sizing_mode='stretch_height',
-                width=250,
-            ),
+            instr,
             pn.Column(
                 pn.pane.Markdown("## Classify Pixels"),
                 pn.Row(analysis_date_selector, pre_fire_date_selector,method_selector),

@@ -84,12 +84,12 @@ class StagePreviewImages(param.Parameterized):
     @param.depends('year','satellite','registry')
     def view(self):
         instr = get_instructions("03_instr_categorize_previews.md",instr_width=250)
+        instr.objects += [pn.pane.Alert("Note that these categorizations only impact which files the user descides to download in the next step.",sizing_mode='stretch_width')]
         img_pane = self.img_pane()
 
         pane = pn.Row(
             pn.Column(
                 instr,
-                pn.pane.Alert("Note that these categorizations only impact which files the user descides to download in the next step.",sizing_mode='stretch_width'),
                 width=250, margin=(40, 10),
             ),
             pn.Column(

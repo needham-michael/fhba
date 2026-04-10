@@ -72,7 +72,10 @@ class StageAggregate(param.Parameterized):
     def view(self):
 
         instr = get_instructions("07_instr_aggregate.md", instr_width=250)
-
+        instr.objects += [pn.pane.Alert(
+                    "Aggregation unions all finalized burn masks for this year/satellite "
+                    "into a single seasonal map.",
+                    alert_type='info',width=250)]
         
         # -- Status table -------------------------------------------------------
         gm_df = self.gm.to_df().reset_index()
@@ -81,16 +84,17 @@ class StageAggregate(param.Parameterized):
         n_ready = len(categorized)
 
         status_md = pn.pane.Markdown(
-            f"**{n_ready} burn mask(s) ready for aggregation.**\n\n" +
+            f"**Burn mask(s) ready for aggregation by method:**\n\n" +
             ("No burn masks found. Please complete Stage 6 for at least one date first."
              if n_ready == 0 else ""),
             width=600
         )
 
         table = pn.pane.DataFrame(
-            categorized[['date', 'categorization_status']].reset_index(drop=True),
+            pd.DataFrame(
+                [pd.Series(data=list(sorted(self.gm.burnmask_by_date[method].keys())), name=method) for method in ['eucl','rf','svm']]).T,
             index=False,
-            width=400
+            width=300
         )
 
         # -- Controls -----------------------------------------------------------
@@ -190,16 +194,7 @@ class StageAggregate(param.Parameterized):
         compute_stats_button.on_click(compute_stats)
 
         pane = pn.Row(
-            pn.Column(
-                instr,
-                pn.pane.Alert(
-                    "Aggregation unions all finalized burn masks for this year/satellite "
-                    "into a single seasonal map.",
-                    alert_type='info', width=250
-                ),
-                sizing_mode='stretch_height',
-                width=250,
-            ),
+            instr,
             pn.Column(
                 pn.pane.Markdown("## Seasonal Burn Scar Aggregation"),
                 status_md,
