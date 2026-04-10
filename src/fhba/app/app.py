@@ -54,7 +54,8 @@ class StageSetup(param.Parameterized):
     @param.depends('year','satellite_full')
     def view(self):
 
-        instr = get_instructions("01_instr_select_sat.md", instr_width=800)
+        instr = get_instructions(
+            "01_instr_select_sat.md", instr_width=800, as_card=False)
 
         pane = pn.Column(
             instr,

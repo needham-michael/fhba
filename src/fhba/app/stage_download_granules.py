@@ -179,6 +179,7 @@ class StageDownloadGranules(param.Parameterized):
     def view(self):
 
         instr = get_instructions("04_instr_download_granules.md",instr_width=250)
+        instr.objects += [pn.pane.Alert("Please be patient, downloading and processing satellite granules can take several minutes complete for each date",sizing_mode='stretch_width',alert_type='warning')]
         table_pane = self.table_pane()
 
         download_pane = self.download_pane()
@@ -186,7 +187,6 @@ class StageDownloadGranules(param.Parameterized):
         pane = pn.Row(
             pn.Column(
                 instr,
-                pn.pane.Alert("Please be patient, downloading and processing satellite granules can take several minutes complete for each date",sizing_mode='stretch_width',alert_type='warning'),
                 width=250, margin=(40, 10),
             ),
             pn.Column(

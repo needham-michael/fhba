@@ -5,13 +5,24 @@ import pandas as pd
 import panel as pn
 import shapely
 
-def get_instructions(filename,instr_width):
+def get_instructions(filename,instr_width,as_card=True):
 
     instructions = importlib.resources.open_text(
         'fhba.app.appdata.instructions', filename
     ).readlines()
 
-    return pn.pane.Markdown("".join(instructions),width=instr_width)
+    instructions = pn.pane.Markdown("".join(instructions),width=instr_width)
+
+    if as_card:
+
+        instructions = pn.Card(
+            title="Instructions",
+            objects=[instructions],
+            styles={'background': 'WhiteSmoke'},
+            collapsible =False
+        )
+    
+    return instructions
 
 def initialize_userpoints(color,marker='x',point_locations=None,label=None):
 

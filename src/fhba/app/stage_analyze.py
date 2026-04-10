@@ -82,6 +82,10 @@ class StageAnalyze(param.Parameterized):
     @param.depends('year','satellite','registry', 'gm')
     def view(self):
         instr = get_instructions("05_instr_select_pixels.md",instr_width=250)
+        instr.objects += [pn.pane.Alert(
+                    "To improve categorization performance, recommend selecting at least 50-100 burned and unburned points each from a variety of locations across the image.",
+                    sizing_mode='stretch_width',alert_type='warning')
+        ]
 
         table, gm_df = self.table_pane(return_df=True)
 
@@ -340,9 +344,6 @@ class StageAnalyze(param.Parameterized):
         return pn.Row(
             pn.Column(
                 instr,
-                pn.pane.Alert(
-                    "To improve categorization performance, recommend selecting at least 50-100 burned and unburned points each from a variety of locations across the image.",
-                    sizing_mode='stretch_width',alert_type='warning',width=250,),
                 sizing_mode='stretch_height',
                 width=250,
             ),
