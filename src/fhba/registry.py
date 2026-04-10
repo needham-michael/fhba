@@ -164,7 +164,7 @@ class GranuleManager:
 
         return burnmask, confidence_ds
     
-    def aggregate_burnmasks(self, out_file=None, method='eucl',ytd_cutoff=None):
+    def aggregate_burnmasks(self, out_file=None, method='eucl',ytd_cutoff=None, as_doy=False):
         """Union all finalized burn masks into a single seasonal burn map.
         Parameters
         ----------
@@ -177,6 +177,9 @@ class GranuleManager:
         ytd_cutoff : str, optional
             If provided, only burn masks from dates up to and including the cutoff date
             will be included in the YTD aggregation.
+        as_doy : bool, default False
+            If True, the output file will record burned area by the date of year(doy) in
+            which the burn was first detected at a pixel.
 
         Returns
         -------
@@ -203,6 +206,7 @@ class GranuleManager:
             ytd_cutoff = pd.Timestamp(self.end_date)  # effectively include all dates up to end_date
 
         for date, path in sorted(burnmask_files.items()):
+            print(f"{date} | {path}")
             if pd.to_datetime(date) <= pd.to_datetime(ytd_cutoff):
                 if path and os.path.exists(path):
                     da = rxr.open_rasterio(path).squeeze()
@@ -215,15 +219,30 @@ class GranuleManager:
             raise ValueError("Burn mask files listed in registry do not exist on disk.")
 
         stacked = xr.concat(arrays, dim='time')
-        seasonal = stacked.max(dim='time')
+
+        if as_doy:
+            
+            doy = xr.DataArray(
+                data = [int(d.strftime("%j")) for d in dates],
+                coords={'time':stacked.time}
+                )
+            
+            seasonal = (stacked * doy)
+            seasonal = seasonal.where(seasonal != 0).min(dim='time').fillna(0).astype(int)
+            
+        else:
+            seasonal = stacked.max(dim='time')
 
         if out_file is None:
             os.makedirs(self.burnmask_dir, exist_ok=True)
             final_date = max(dates).strftime("%Y-%m-%d")
-            year = self.start_date.split('-')[0]
             out_file = os.path.join(
                 self.burnmask_dir,
                 f"{self.satellite_name}_{self.spatial_name}_{method}_{final_date}_YTD.tif")
+            
+        if as_doy:
+            out_file = out_file.replace("_YTD.tif", "_DOY.tif")
+
         seasonal.rio.to_raster(out_file)
         logger.info("Seasonal burn map written to %s", out_file)
         return out_file
@@ -584,7 +603,7 @@ class GranuleManager:
             raise ValueError("Either granule_search_results or date must be provided to download granules.")
         
         if granule_search_results is None:
-
+            print("Searching for Granules")
             # Will return None if granules already downloaded to avoid redundant searches
             granule_search_results = self.search_granules(date,day_night_flag=day_night_flag)
 
@@ -614,7 +633,9 @@ class GranuleManager:
                 print("Download complete. Filenames not added to Registry since date was not provided.")
                 if return_granules:
                     return [str(f) for f in granule_files]
-        except earthaccess.exceptions.DownloadFailure:
+        except ValueError as e:
+            print(f"No granules found for {date}.")
+        except earthaccess.exceptions.DownloadFailure as e:
             print("Download failed. Marking date as download error in Registry.")
             self.raw_granules_by_date[date] = ["DOWNLOAD ERROR"]
 
@@ -651,6 +672,8 @@ class GranuleManager:
                 print("Download complete. Filenames not added to Registry since date was not provided.")
                 if return_granules:
                     return [str(f) for f in granule_files]
+        except ValueError as e:
+            print(f"No granules found for {date}.")
         except earthaccess.exceptions.DownloadFailure:
             print("Download failed. Marking date as download error in Registry.")
             self.raw_cloud_mask_granules_by_date[date] = ["DOWNLOAD ERROR"]

@@ -60,7 +60,13 @@ class StageAggregate(param.Parameterized):
             ).strftime("%Y-%m-%d")),
         )
 
-        return generate_button, compute_stats_button, download_stats_button, loading, method_selector,ytd_selector
+        as_doy_selector = pn.widgets.Checkbox(
+            name="Record burned area by DOY",
+            value=False,
+            width=220,
+        )
+
+        return generate_button, compute_stats_button, download_stats_button, loading, method_selector,ytd_selector, as_doy_selector
 
     @param.depends('year', 'satellite', 'registry', 'gm')
     def view(self):
@@ -88,7 +94,7 @@ class StageAggregate(param.Parameterized):
         )
 
         # -- Controls -----------------------------------------------------------
-        generate_button, compute_stats_button, download_stats_button, loading, method_selector, ytd_selector = self.get_widgets()
+        generate_button, compute_stats_button, download_stats_button, loading, method_selector, ytd_selector, as_doy_selector = self.get_widgets()
 
 
         result_md = pn.pane.Markdown("", width=600)
@@ -106,7 +112,8 @@ class StageAggregate(param.Parameterized):
                 method = method_selector.value
                 seasonal_file = self.gm.aggregate_burnmasks(
                     method=method,
-                    ytd_cutoff=str(ytd_selector.value)
+                    ytd_cutoff=str(ytd_selector.value),
+                    as_doy=as_doy_selector.value
                     )
                 _state['seasonal_file'] = seasonal_file
                 result_md.object = (
@@ -199,12 +206,13 @@ class StageAggregate(param.Parameterized):
                 table,
                 pn.layout.Divider(),
                 pn.Column(
-                    pn.Row(ytd_selector,method_selector),
+                    pn.Row(ytd_selector,method_selector,),
+                    as_doy_selector,
                     pn.Row(generate_button, compute_stats_button),
                 ),
                 loading,
                 result_md,
-                pn.pane.Markdown(f"### Burned Area by County)"),
+                pn.pane.Markdown(f"### Burned Area by County"),
                 stats_table,
                 download_stats_button,
                 margin=(40, 10), sizing_mode='stretch_both',
