@@ -98,3 +98,19 @@ landsat:
     cloud_mask_short_name: "HLSL30"
     cloud_mask_version: "2.0"
     start_year: 2021
+
+sentinel:
+  full_band_list: ["B2","B3","B4","B8A","B11","B12"]  # Blue, Green, Red, NIR, SWIR1, SWIR2
+  # nir_red_band_list: index 0 = NIR (B8A, 0.865 um), index 1 = RED (B4, 0.665 um)
+  nir_red_band_list: ["B8A","B4"]
+  nbr_bands: ["B8A","B12"]   # NIR=B8A, SWIR2=B12
+  ndvi_bands: ["B8A","B4"]   # NIR=B8A, RED=B4
+  # Sentinel-2 (2A+2B combined) repeats every ~5 days; HLSS30 product merges both spacecraft.
+  # No pass_anchor_dates configured — all dates are attempted.
+  pass_repeat_days: 5
+  Sentinel-2:
+    short_name_list: ["HLSS30"]
+    version: "2.0"
+    cloud_mask_short_name: "HLSS30"
+    cloud_mask_version: "2.0"
+    start_year: 2015

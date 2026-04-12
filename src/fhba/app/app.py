@@ -23,13 +23,14 @@ pn.extension(notifications=True)
 
 # Minimum data year for each satellite (used for validation)
 _SATELLITE_MIN_YEAR = {
-    'Suomi-NPP': 2012,
-    'NOAA-20':   2018,
-    'NOAA-21':   2023,
-    'AQUA':      2002,
-    'TERRA':     2000,
-    'Landsat-8': 2013,
-    'Landsat-9': 2021,
+    'Suomi-NPP':   2012,
+    'NOAA-20':     2018,
+    'NOAA-21':     2023,
+    'AQUA':        2002,
+    'TERRA':       2000,
+    'Landsat-8':   2013,
+    'Landsat-9':   2021,
+    'Sentinel-2': 2015,
 }
 
 _SATELLITE_DISPLAY_NAMES = [
@@ -40,6 +41,7 @@ _SATELLITE_DISPLAY_NAMES = [
     'TERRA MODIS',
     'Landsat-8 OLI',
     'Landsat-9 OLI',
+    'Sentinel-2 MSI',
 ]
 
 

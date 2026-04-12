@@ -376,9 +376,11 @@ def _load_hls_bands(granule_files, band_list, area_def, resampler='nearest'):
     -------
     xr.Dataset with one float32 variable per band on the *area_def* grid.
     """
-    import rioxarray as rxr
+    import tempfile
+    import rasterio
     from rasterio.enums import Resampling as RioResampling
     from rasterio.transform import from_bounds
+    from rasterio.warp import reproject as _rio_reproject
     _RESAMPLING = {
         'nearest': RioResampling.nearest,
         'bilinear': RioResampling.bilinear,
@@ -423,29 +425,63 @@ def _load_hls_bands(granule_files, band_list, area_def, resampler='nearest'):
             continue
         tile_das = []
         for fp in files_by_band[band]:
+            tmp_path = None
             try:
-                da = rxr.open_rasterio(fp, masked=True).squeeze('band', drop=True)
-                da = da.rio.reproject(
-                    dst_crs=dst_crs,
-                    shape=(height, width),
-                    transform=dst_transform,
-                    resampling=rio_resampling,
-                    nodata=np.nan,
-                )
+                # Reproject directly to a temp GeoTIFF so rasterio can process
+                # in internal blocks rather than allocating the full output
+                # array in RAM (avoids ~665 MiB spike per tile).
+                tmp_fd, tmp_path = tempfile.mkstemp(suffix='.tif')
+                os.close(tmp_fd)
+
+                with rasterio.open(fp) as src:
+                    # Read scale_factor from file metadata before reprojecting.
+                    sf_raw = (src.tags(1).get('scale_factor')
+                              or src.tags().get('scale_factor'))
+                    sf = float(sf_raw) if sf_raw is not None else 0.0001
+                    src_nodata = src.nodata
+
+                    profile = {
+                        'driver': 'GTiff',
+                        'dtype': 'float32',
+                        'width': width,
+                        'height': height,
+                        'count': 1,
+                        'crs': dst_crs,
+                        'transform': dst_transform,
+                        'nodata': np.nan,
+                    }
+                    with rasterio.open(tmp_path, 'w', **profile) as dst:
+                        _rio_reproject(
+                            source=rasterio.band(src, 1),
+                            destination=rasterio.band(dst, 1),
+                            src_transform=src.transform,
+                            src_crs=src.crs,
+                            dst_transform=dst_transform,
+                            dst_crs=dst_crs,
+                            resampling=rio_resampling,
+                            src_nodata=src_nodata,
+                            dst_nodata=np.nan,
+                        )
+
+                # Read back the reprojected tile and immediately free it after
+                # the mosaic merge step below.
+                with rasterio.open(tmp_path) as dst:
+                    arr = dst.read(1).astype(np.float32)
+
                 # Apply scale factor to convert to percent reflectance
                 # (Fmask has scale_factor=1, reflectance bands use 0.0001)
                 if band.lower() != 'fmask':
-                    sf = float(da.attrs.get('scale_factor', 0.0001))
-                    da = da * sf * 100.0  # → percent reflectance, same as VIIRS
-                # Assign canonical coordinates and strip extras NOW so all tiles
-                # share an identical coordinate grid before mosaicking.
-                da = da.assign_coords(x=('x', xs), y=('y', ys))
-                da = da.drop_vars('spatial_ref', errors='ignore')
-                for cf_attr in ('scale_factor', 'add_offset', '_FillValue'):
-                    da.attrs.pop(cf_attr, None)
+                    arr = arr * sf * 100.0  # → percent reflectance, same as VIIRS
+
+                da = xr.DataArray(arr, dims=['y', 'x'],
+                                  coords={'x': ('x', xs), 'y': ('y', ys)})
+                del arr
                 tile_das.append(da)
             except Exception as exc:
                 logger.warning("Could not load HLS file '%s': %s", fp, exc)
+            finally:
+                if tmp_path and os.path.exists(tmp_path):
+                    os.unlink(tmp_path)
         if not tile_das:
             continue
         # Mosaic: stack all tiles and take the first valid (non-NaN) value at
@@ -454,12 +490,14 @@ def _load_hls_bands(granule_files, band_list, area_def, resampler='nearest'):
         if len(tile_das) == 1:
             merged = tile_das[0]
         else:
-            import numpy as _np
-            data_stack = _np.stack([t.values for t in tile_das], axis=0)
-            first_valid = _np.full(data_stack.shape[1:], _np.nan, dtype=_np.float32)
-            for layer in data_stack:
-                fill_mask = _np.isnan(first_valid) & ~_np.isnan(layer)
+            # Mosaic incrementally to avoid allocating a full N-tile stack.
+            # Each tile is consumed and freed after its valid pixels are merged.
+            first_valid = np.full(tile_das[0].shape, np.nan, dtype=np.float32)
+            for t in tile_das:
+                layer = t.values
+                fill_mask = np.isnan(first_valid) & ~np.isnan(layer)
                 first_valid[fill_mask] = layer[fill_mask]
+                del layer
             merged = tile_das[0].copy(data=first_valid)
         das[band] = merged.astype('float32')
 
@@ -570,8 +608,8 @@ class GranuleManager:
         self.pass_anchor_dates = pass_anchor_dates  # list of 'YYYY-MM-DD' strings
         self.pass_repeat_days = int(pass_repeat_days) if pass_repeat_days else 16
 
-        if self.instrument not in ['viirs', 'modis', 'landsat', None]:
-            raise ValueError(f"Instrument {instrument} not recognized. Valid options are 'viirs', 'modis', or 'landsat'.")
+        if self.instrument not in ['viirs', 'modis', 'landsat', 'sentinel', None]:
+            raise ValueError(f"Instrument {instrument} not recognized. Valid options are 'viirs', 'modis', 'landsat', or 'sentinel'.")
 
         # Define dictionaries to maintain status of satellite granules by date at
         # various workflow stages.
@@ -1174,7 +1212,7 @@ class GranuleManager:
             # mismatch) but the files were already there from a prior run or
             # were placed manually.  Recover by scanning raw_data_dir for any
             # HLS .tif whose filename contains the YYYYDOY string for this date.
-            if self.instrument == 'landsat' and os.path.isdir(self.raw_data_dir):
+            if self.instrument in ('landsat', 'sentinel') and os.path.isdir(self.raw_data_dir):
                 _d = datetime.strptime(date, '%Y-%m-%d')
                 _date_pat = f"{_d.year}{_d.timetuple().tm_yday:03d}"
                 _recovered = sorted([
@@ -1222,8 +1260,8 @@ class GranuleManager:
                 os.remove(nc_file)
                 nc_file_exists = False
 
-        # ── Landsat HLS: use rioxarray — Satpy has no reader for HLSL30 GeoTIFFs ──
-        if self.instrument == 'landsat':
+        # ── HLS (Landsat / Sentinel-2): use rioxarray — Satpy has no reader for HLS GeoTIFFs ──
+        if self.instrument in ('landsat', 'sentinel'):
             hls_load_bands = list(self.full_band_list)
             hls_ds = None
             if not nc_file_exists and not truecolor_file_exists:
@@ -1605,7 +1643,7 @@ class GranuleManager:
         platform/instrument filters are redundant, and CMR does not reliably
         populate those fields for HLS — omitting them avoids zero-result searches.
         """
-        if self.instrument == 'landsat':
+        if self.instrument in ('landsat', 'sentinel'):
             return {}
         kwargs = dict(
             platform=self.satellite_name.upper(),
@@ -1974,6 +2012,32 @@ class GranuleManager:
                     "Failed to retrieve Worldview HLS image for %s on %s. HTTP %d",
                     self.satellite_name, date, response.status_code)
             return
+
+        # ── Sentinel-2 via NASA GIBS HLS S30 layer ────────────────────────────
+        # NASA GIBS carries the HLS S30 (Sentinel-2) product as a daily WMS
+        # layer: HLS_S30_Nadir_BRDF_Adjusted_Reflectance.
+        elif self.satellite_name == 'Sentinel-2':
+            layer = 'HLS_S30_Nadir_BRDF_Adjusted_Reflectance'
+            url = (
+                "https://wvs.earthdata.nasa.gov/api/v1/snapshot"
+                f"?REQUEST=GetSnapshot&TIME={date}T00:00:00Z&BBOX={bbox}&CRS=EPSG:4326"
+                f"&LAYERS={layer},Coastlines_15m&WRAP=day,x&FORMAT=image/jpeg"
+                "&WIDTH=1138&HEIGHT=1820&colormaps="
+            )
+            logger.debug("Worldview Sentinel URL: %s", url)
+            response = requests.get(url)
+
+            if response.status_code == 200:
+                os.makedirs(os.path.dirname(out_path), exist_ok=True)
+                with open(out_path, 'wb') as f:
+                    f.write(response.content)
+                self.truecolor_images_by_date[date] = out_path
+                logger.info("Sentinel-2 HLS preview image retrieved and saved to %s", out_path)
+            else:
+                logger.warning(
+                    "Failed to retrieve Worldview HLS image for %s on %s. HTTP %d",
+                    self.satellite_name, date, response.status_code)
+            return
         else:
             logger.warning(
                 "retrieve_worldview_image: satellite '%s' is not supported. "
@@ -2078,9 +2142,9 @@ class GranuleManager:
         r = g = b = None  # will be set by whichever branch matches
         tc = None         # sentinel: None means true_color branch was not used
 
-        # For Landsat use individual B4/B3/B2 bands (truecolor R/G/B).
+        # For Landsat/Sentinel-2 use individual B4/B3/B2 bands (truecolor R/G/B).
         # For VIIRS/MODIS try the saved true_color composite first, then NIR-Red.
-        if self.instrument == 'landsat' and all(b in ds for b in ('B4', 'B3', 'B2')):
+        if self.instrument in ('landsat', 'sentinel') and all(b in ds for b in ('B4', 'B3', 'B2')):
             red_da = ds['B4'].load()
             grn_da = ds['B3'].load()
             blu_da = ds['B2'].load()
@@ -2392,17 +2456,16 @@ class GranuleManager:
         return class_str
 
     def get_known_pass_dates(self, start_date=None, end_date=None):
-        """Return sorted list of known Landsat orbital pass dates within the range.
+        """Return sorted list of known orbital pass dates within the range.
 
         Uses ``pass_anchor_dates`` (list of 'YYYY-MM-DD' strings) and
-        ``pass_repeat_days`` (default 16) stored on this instance to project
-        each anchor date backward and forward until it falls outside the
-        [start_date, end_date] window.
+        ``pass_repeat_days`` stored on this instance to project each anchor date
+        backward and forward until it falls outside the [start_date, end_date] window.
 
         Returns ``None`` for non-Landsat instruments or when no anchor dates
         are configured (so callers can fall back to iterating every day).
         """
-        if self.instrument != 'landsat':
+        if self.instrument not in ('landsat', 'sentinel'):
             return None
         if not self.pass_anchor_dates:
             return None
@@ -2454,6 +2517,11 @@ class GranuleRegistry:
                  landsat_short_names=None, landsat_band_list=None,
                  landsat_nir_red_band_list=None, landsat_nbr_bands=None,
                  landsat_ndvi_bands=None, landsat_cloud_mask_short_names=None,
+                 sentinel_short_names=None, sentinel_band_list=None,
+                 sentinel_nir_red_band_list=None, sentinel_nbr_bands=None,
+                 sentinel_ndvi_bands=None, sentinel_cloud_mask_short_names=None,
+                 sentinel_versions=None, sentinel_cloud_mask_versions=None,
+                 sentinel_pass_anchor_dates=None, sentinel_pass_repeat_days=10,
                  satpy_area_def=None, county_shp=None, supported_instruments=None,
                  userpts_dir=None, viirs_cloud_mask_short_names=None, burnmask_dir=None,
                  viirs_versions=None, viirs_cloud_mask_versions=None,
@@ -2506,6 +2574,17 @@ class GranuleRegistry:
         self.landsat_ndvi_bands = landsat_ndvi_bands
         self.landsat_cloud_mask_short_names = landsat_cloud_mask_short_names
 
+        self.sentinel_short_names = sentinel_short_names
+        self.sentinel_band_list = sentinel_band_list
+        self.sentinel_nir_red_band_list = sentinel_nir_red_band_list
+        self.sentinel_versions = sentinel_versions or {}
+        self.sentinel_cloud_mask_versions = sentinel_cloud_mask_versions or {}
+        self.sentinel_nbr_bands = sentinel_nbr_bands
+        self.sentinel_ndvi_bands = sentinel_ndvi_bands
+        self.sentinel_cloud_mask_short_names = sentinel_cloud_mask_short_names
+        self.sentinel_pass_anchor_dates = sentinel_pass_anchor_dates
+        self.sentinel_pass_repeat_days = int(sentinel_pass_repeat_days) if sentinel_pass_repeat_days else 10
+
         self.satpy_area_def = satpy_area_def
         self.supported_instruments = supported_instruments if supported_instruments is not None else []
 
@@ -2548,6 +2627,18 @@ class GranuleRegistry:
                 pass_repeat_days  = getattr(self, 'landsat_pass_repeat_days', 16)
                 version = (self.landsat_versions or {}).get(satellite_name)
                 cloud_mask_version = (self.landsat_cloud_mask_versions or {}).get(satellite_name)
+            elif self.sentinel_short_names and satellite_name in self.sentinel_short_names:
+                instrument = 'sentinel'
+                short_name_list = self.sentinel_short_names[satellite_name]
+                full_band_list = self.sentinel_band_list
+                nir_red_band_list = self.sentinel_nir_red_band_list
+                nbr_bands = self.sentinel_nbr_bands
+                ndvi_bands = self.sentinel_ndvi_bands
+                cloud_mask_short_name = (self.sentinel_cloud_mask_short_names or {}).get(satellite_name)
+                pass_anchor_dates = getattr(self, 'sentinel_pass_anchor_dates', None)
+                pass_repeat_days  = getattr(self, 'sentinel_pass_repeat_days', 10)
+                version = (self.sentinel_versions or {}).get(satellite_name)
+                cloud_mask_version = (self.sentinel_cloud_mask_versions or {}).get(satellite_name)
             else:
                 instrument = 'modis'
                 short_name_list = self.modis_short_names[satellite_name]
@@ -2564,7 +2655,7 @@ class GranuleRegistry:
             # VIIRS: keep the shared default grid (≈375 m I-bands / 750 m M-bands).
             # MODIS: 250 m (QKM bands drive the band list).
             # Landsat HLS: 30 m native resolution.
-            _INSTRUMENT_RES_M = {'modis': 250, 'landsat': 30}
+            _INSTRUMENT_RES_M = {'modis': 250, 'landsat': 30, 'sentinel': 30}
             _res_m = _INSTRUMENT_RES_M.get(instrument, None)
             if _res_m is not None:
                 import warnings as _w
@@ -2639,6 +2730,7 @@ class GranuleRegistry:
             'viirs': getattr(self, 'viirs_full_band_list', None) or getattr(self, 'viirs_band_list', None) or [],
             'modis': getattr(self, 'modis_full_band_list', None) or getattr(self, 'modis_band_list', None) or [],
             'landsat': getattr(self, 'landsat_full_band_list', None) or getattr(self, 'landsat_band_list', None) or [],
+            'sentinel': getattr(self, 'sentinel_full_band_list', None) or getattr(self, 'sentinel_band_list', None) or [],
         }
         for gm in self.satellites.values():
             instr = getattr(gm, 'instrument', '')
@@ -2721,6 +2813,16 @@ class Registry:
                 landsat_cloud_mask_short_names=self.landsat_cloud_mask_short_names,
                 landsat_versions=self.landsat_versions,
                 landsat_cloud_mask_versions=self.landsat_cloud_mask_versions,
+                sentinel_band_list=self.sentinel_full_band_list,
+                sentinel_nir_red_band_list=self.sentinel_nir_red_band_list,
+                sentinel_nbr_bands=self.sentinel_nbr_bands,
+                sentinel_ndvi_bands=self.sentinel_ndvi_bands,
+                sentinel_short_names=self.sentinel_short_names,
+                sentinel_cloud_mask_short_names=self.sentinel_cloud_mask_short_names,
+                sentinel_versions=self.sentinel_versions,
+                sentinel_cloud_mask_versions=self.sentinel_cloud_mask_versions,
+                sentinel_pass_anchor_dates=self.sentinel_pass_anchor_dates,
+                sentinel_pass_repeat_days=self.sentinel_pass_repeat_days,
                 viirs_versions=self.viirs_versions,
                 viirs_cloud_mask_versions=self.viirs_cloud_mask_versions,
                 satpy_area_def=self.satpy_area_def,
@@ -2865,10 +2967,28 @@ class Registry:
         self.landsat_pass_anchor_dates = _landsat_cfg.get('pass_anchor_dates', None)
         self.landsat_pass_repeat_days = int(_landsat_cfg.get('pass_repeat_days', 16))
 
+        # Sentinel (optional — config block may not exist in older installs)
+        _sentinel_cfg = config.get('sentinel', {})
+        _sentinel_non_sat_keys = ('full_band_list', 'nir_red_band_list',
+                                  'nbr_bands', 'ndvi_bands',
+                                  'pass_anchor_dates', 'pass_repeat_days')
+        _sentinel_sat_keys = [k for k in _sentinel_cfg if k not in _sentinel_non_sat_keys]
+        self.sentinel_short_names = {k: _sentinel_cfg[k]['short_name_list'] for k in _sentinel_sat_keys}
+        self.sentinel_cloud_mask_short_names = {k: _sentinel_cfg[k]['cloud_mask_short_name'] for k in _sentinel_sat_keys}
+        self.sentinel_versions = {k: _sentinel_cfg[k].get('version') for k in _sentinel_sat_keys}
+        self.sentinel_cloud_mask_versions = {k: _sentinel_cfg[k].get('cloud_mask_version') for k in _sentinel_sat_keys}
+        self.sentinel_full_band_list = _sentinel_cfg.get('full_band_list', [])
+        self.sentinel_nir_red_band_list = _sentinel_cfg.get('nir_red_band_list', [])
+        self.sentinel_nbr_bands = _sentinel_cfg.get('nbr_bands', None)
+        self.sentinel_ndvi_bands = _sentinel_cfg.get('ndvi_bands', None)
+        self.sentinel_pass_anchor_dates = _sentinel_cfg.get('pass_anchor_dates', None)
+        self.sentinel_pass_repeat_days = int(_sentinel_cfg.get('pass_repeat_days', 10))
+
         self.supported_instruments = (
             list(self.viirs_short_names.keys()) +
             list(self.modis_short_names.keys()) +
-            list(self.landsat_short_names.keys())
+            list(self.landsat_short_names.keys()) +
+            list(self.sentinel_short_names.keys())
         )
 
     def review_file_status(self):
@@ -2922,7 +3042,7 @@ class Registry:
 
         if 'satpy_area_def' in data:
             self.define_satpy_area_def()
-            _INSTRUMENT_RES_M = {'modis': 250, 'landsat': 30}
+            _INSTRUMENT_RES_M = {'modis': 250, 'landsat': 30, 'sentinel': 30}
             for gr in self.granule_registry:
                 # Copy paths from parent Registry to GranuleRegistry, with year appended
                 gr_obj = self.granule_registry[gr]
@@ -2972,12 +3092,21 @@ class Registry:
             'landsat_short_names', 'landsat_cloud_mask_short_names',
             'landsat_full_band_list', 'landsat_nir_red_band_list',
             'landsat_nbr_bands', 'landsat_ndvi_bands',
+            'sentinel_short_names', 'sentinel_cloud_mask_short_names',
+            'sentinel_full_band_list', 'sentinel_nir_red_band_list',
+            'sentinel_nbr_bands', 'sentinel_ndvi_bands',
+            'sentinel_pass_anchor_dates', 'sentinel_pass_repeat_days',
         }
         for gr in self.granule_registry.values():
             for field in _config_fields:
                 val = getattr(self, field, None)
                 if val is not None:
                     setattr(gr, field, val)
+            # GranuleRegistry uses *_band_list (not *_full_band_list) internally
+            for instr in ('viirs', 'modis', 'landsat', 'sentinel'):
+                full = getattr(self, f'{instr}_full_band_list', None)
+                if full:
+                    setattr(gr, f'{instr}_band_list', full)
 
         # Reconcile every GranuleManager against the filesystem so the
         # in-memory state always reflects what's actually on disk, regardless

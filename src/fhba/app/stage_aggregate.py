@@ -158,8 +158,8 @@ class StageAggregate(param.Parameterized):
                 download_stats_button.filename = os.path.basename(csv_path)
                 download_stats_button.visible = True
 
-                total_km2 = gdf.loc[gdf['county_name'] == 'Total', 'burned_area_km2_utm'].iloc[0]
-                total_acres = stats_df['burned_area_acres'].sum()
+                total_km2   = gdf.loc[gdf['county_name'] == 'Total', 'burned_area_km2_utm'].iloc[0]
+                total_acres = gdf.loc[gdf['county_name'] == 'Total', 'burned_area_acres_utm'].iloc[0]
                 result_md.object += (
                     f"\n\n**Total burned area:** {total_km2:.1f} km²  "
                     f"({total_acres:,.0f} acres)"
