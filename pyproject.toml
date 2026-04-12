@@ -39,14 +39,18 @@ dependencies = [
 
 [tool.uv]
 required-version = ">=0.11.2"
-# Pre-built wheels for packages with no cp314 Windows wheel on PyPI.
-# find-links covers pyhdf (no cp314 wheel exists on PyPI at all).
-# uv.sources overrides cartopy and numcodecs, which have only sdists on PyPI
-# (uv would otherwise try to compile them, requiring Visual Studio).
-find-links = ["wheels"]
 
+# Three packages have no pre-built cp314 Windows wheel on PyPI and require
+# Visual Studio to compile from source.  The wheels/ directory contains
+# pre-built binaries so that uv sync works without a compiler on Windows.
+# marker = "sys_platform == 'win32'" limits the override to Windows only;
+# Linux / macOS fall through to PyPI (sdist compiles fine with gcc/clang).
+# Note: find-links is intentionally NOT used here because it causes uv to
+# record the wheels/ registry as the source for non-Windows platforms too,
+# breaking resolution on Linux/macOS.  Explicit [tool.uv.sources] entries
+# with platform markers give uv the correct per-platform resolution.
 [tool.uv.sources]
-# Windows cp314 only — on other platforms PyPI sdist / existing wheels are used.
+pyhdf     = { path = "wheels/pyhdf-0.11.6-cp314-cp314-win_amd64.whl",     marker = "sys_platform == 'win32'" }
 cartopy   = { path = "wheels/cartopy-0.25.0-cp314-cp314-win_amd64.whl",   marker = "sys_platform == 'win32'" }
 numcodecs = { path = "wheels/numcodecs-0.15.1-cp314-cp314-win_amd64.whl", marker = "sys_platform == 'win32'" }
 

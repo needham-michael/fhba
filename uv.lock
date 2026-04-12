@@ -356,7 +356,7 @@ wheels = [
 [[package]]
 name = "cartopy"
 version = "0.25.0"
-source = { registry = "wheels" }
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "matplotlib" },
     { name = "numpy" },
@@ -365,9 +365,7 @@ dependencies = [
     { name = "pyshp" },
     { name = "shapely" },
 ]
-wheels = [
-    { path = "cartopy-0.25.0-cp314-cp314-win_amd64.whl" },
-]
+sdist = { url = "https://files.pythonhosted.org/packages/3c/3f/ec3dee34237b696a486d566a6d3ae6550ae821836e0412bafdcbbec2cfd2/cartopy-0.25.0.tar.gz", hash = "sha256:55f1a390e5f3f075b221c7d91fb10258ad978db786c7930eba06eb45d28753fe", size = 10767728, upload-time = "2025-08-01T12:44:16.573Z" }
 
 [[package]]
 name = "certifi"
@@ -727,14 +725,15 @@ dependencies = [
     { name = "h5netcdf" },
     { name = "holoviews" },
     { name = "netcdf4" },
-    { name = "numcodecs", version = "0.15.1", source = { registry = "wheels" }, marker = "sys_platform != 'win32'" },
+    { name = "numcodecs", version = "0.15.1", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'win32'" },
     { name = "numcodecs", version = "0.15.1", source = { path = "wheels/numcodecs-0.15.1-cp314-cp314-win_amd64.whl" }, marker = "sys_platform == 'win32'" },
     { name = "numpy" },
     { name = "panel" },
     { name = "pyarrow" },
     { name = "pycoast" },
     { name = "pydecorate" },
-    { name = "pyhdf" },
+    { name = "pyhdf", version = "0.11.6", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'win32'" },
+    { name = "pyhdf", version = "0.11.6", source = { path = "wheels/pyhdf-0.11.6-cp314-cp314-win_amd64.whl" }, marker = "sys_platform == 'win32'" },
     { name = "pykdtree" },
     { name = "pyresample" },
     { name = "pyspectral" },
@@ -775,7 +774,8 @@ requires-dist = [
     { name = "pyarrow", specifier = ">=23.0.1" },
     { name = "pycoast", specifier = ">=1.8.0" },
     { name = "pydecorate" },
-    { name = "pyhdf", specifier = ">=0.11.6" },
+    { name = "pyhdf", marker = "sys_platform != 'win32'", specifier = ">=0.11.6" },
+    { name = "pyhdf", marker = "sys_platform == 'win32'", path = "wheels/pyhdf-0.11.6-cp314-cp314-win_amd64.whl" },
     { name = "pykdtree", specifier = ">=1.4.3" },
     { name = "pyresample", specifier = ">=1.35.0" },
     { name = "pyspectral", specifier = ">=0.14.1" },
@@ -1780,7 +1780,7 @@ wheels = [
 [[package]]
 name = "numcodecs"
 version = "0.15.1"
-source = { registry = "wheels" }
+source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
     "sys_platform == 'emscripten'",
     "sys_platform != 'emscripten' and sys_platform != 'win32'",
@@ -1789,6 +1789,7 @@ dependencies = [
     { name = "deprecated", marker = "sys_platform != 'win32'" },
     { name = "numpy", marker = "sys_platform != 'win32'" },
 ]
+sdist = { url = "https://files.pythonhosted.org/packages/63/fc/bb532969eb8236984ba65e4f0079a7da885b8ac0ce1f0835decbb3938a62/numcodecs-0.15.1.tar.gz", hash = "sha256:eeed77e4d6636641a2cc605fbc6078c7a8f2cc40f3dfa2b3f61e52e6091b04ff", size = 6267275, upload-time = "2025-02-10T10:23:33.254Z" }
 
 [[package]]
 name = "numcodecs"
@@ -2218,13 +2219,33 @@ wheels = [
 [[package]]
 name = "pyhdf"
 version = "0.11.6"
-source = { registry = "wheels" }
+source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "sys_platform == 'emscripten'",
+    "sys_platform != 'emscripten' and sys_platform != 'win32'",
+]
 dependencies = [
-    { name = "numpy" },
+    { name = "numpy", marker = "sys_platform != 'win32'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/b8/7b/ce37450155a25fe6edebb6aa7a4e3d928833ae88db73de4e47071973e836/pyhdf-0.11.6.tar.gz", hash = "sha256:9f6de3dd0a9651581e11e9a20f33ba16f4c79fb316c76082060ab33aeef98c5a", size = 150021, upload-time = "2025-01-05T04:02:36.913Z" }
+
+[[package]]
+name = "pyhdf"
+version = "0.11.6"
+source = { path = "wheels/pyhdf-0.11.6-cp314-cp314-win_amd64.whl" }
+resolution-markers = [
+    "platform_machine == 'ARM64' and sys_platform == 'win32'",
+    "platform_machine != 'ARM64' and sys_platform == 'win32'",
+]
+dependencies = [
+    { name = "numpy", marker = "sys_platform == 'win32'" },
 ]
 wheels = [
-    { path = "pyhdf-0.11.6-cp314-cp314-win_amd64.whl" },
+    { filename = "pyhdf-0.11.6-cp314-cp314-win_amd64.whl", hash = "sha256:8a02cd91b9f2ebb333151cb25ca3c6618dc0aeaaa39ecb358dfe86681314b0c6" },
 ]
+
+[package.metadata]
+requires-dist = [{ name = "numpy" }]
 
 [[package]]
 name = "pykdtree"
@@ -3267,7 +3288,7 @@ source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "asciitree" },
     { name = "fasteners" },
-    { name = "numcodecs", version = "0.15.1", source = { registry = "wheels" }, marker = "sys_platform != 'win32'" },
+    { name = "numcodecs", version = "0.15.1", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'win32'" },
     { name = "numcodecs", version = "0.15.1", source = { path = "wheels/numcodecs-0.15.1-cp314-cp314-win_amd64.whl" }, marker = "sys_platform == 'win32'" },
     { name = "numpy" },
 ]
