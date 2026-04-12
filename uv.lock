@@ -357,15 +357,65 @@ wheels = [
 name = "cartopy"
 version = "0.25.0"
 source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "sys_platform == 'emscripten'",
+    "sys_platform != 'emscripten' and sys_platform != 'win32'",
+]
 dependencies = [
-    { name = "matplotlib" },
-    { name = "numpy" },
-    { name = "packaging" },
-    { name = "pyproj" },
-    { name = "pyshp" },
-    { name = "shapely" },
+    { name = "matplotlib", marker = "sys_platform != 'win32'" },
+    { name = "numpy", marker = "sys_platform != 'win32'" },
+    { name = "packaging", marker = "sys_platform != 'win32'" },
+    { name = "pyproj", marker = "sys_platform != 'win32'" },
+    { name = "pyshp", marker = "sys_platform != 'win32'" },
+    { name = "shapely", marker = "sys_platform != 'win32'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/3c/3f/ec3dee34237b696a486d566a6d3ae6550ae821836e0412bafdcbbec2cfd2/cartopy-0.25.0.tar.gz", hash = "sha256:55f1a390e5f3f075b221c7d91fb10258ad978db786c7930eba06eb45d28753fe", size = 10767728, upload-time = "2025-08-01T12:44:16.573Z" }
+
+[[package]]
+name = "cartopy"
+version = "0.25.0"
+source = { path = "wheels/cartopy-0.25.0-cp314-cp314-win_amd64.whl" }
+resolution-markers = [
+    "platform_machine == 'ARM64' and sys_platform == 'win32'",
+    "platform_machine != 'ARM64' and sys_platform == 'win32'",
+]
+dependencies = [
+    { name = "matplotlib", marker = "sys_platform == 'win32'" },
+    { name = "numpy", marker = "sys_platform == 'win32'" },
+    { name = "packaging", marker = "sys_platform == 'win32'" },
+    { name = "pyproj", marker = "sys_platform == 'win32'" },
+    { name = "pyshp", marker = "sys_platform == 'win32'" },
+    { name = "shapely", marker = "sys_platform == 'win32'" },
+]
+wheels = [
+    { filename = "cartopy-0.25.0-cp314-cp314-win_amd64.whl", hash = "sha256:4328a962de5eef5ee21713ec3a82383c2f3ed3bc6301b168265a14197c232338" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "beautifulsoup4", marker = "extra == 'srtm'" },
+    { name = "coveralls", marker = "extra == 'test'" },
+    { name = "fiona", marker = "extra == 'speedups'" },
+    { name = "matplotlib", specifier = ">=3.6" },
+    { name = "numpy", specifier = ">=1.23" },
+    { name = "owslib", marker = "extra == 'ows'", specifier = ">=0.27.0" },
+    { name = "packaging", specifier = ">=21" },
+    { name = "pillow", marker = "extra == 'ows'", specifier = ">=9.1" },
+    { name = "pillow", marker = "extra == 'plotting'", specifier = ">=9.1" },
+    { name = "pydata-sphinx-theme", marker = "extra == 'doc'" },
+    { name = "pykdtree", marker = "extra == 'speedups'" },
+    { name = "pyproj", specifier = ">=3.3.1" },
+    { name = "pyshp", specifier = ">=2.3" },
+    { name = "pytest", marker = "extra == 'test'", specifier = ">=5.1.2" },
+    { name = "pytest-cov", marker = "extra == 'test'" },
+    { name = "pytest-mpl", marker = "extra == 'test'", specifier = ">=0.11" },
+    { name = "pytest-xdist", marker = "extra == 'test'" },
+    { name = "scipy", marker = "extra == 'plotting'", specifier = ">=1.9" },
+    { name = "shapely", specifier = ">=2.0" },
+    { name = "sphinx", marker = "extra == 'doc'" },
+    { name = "sphinx-gallery", marker = "extra == 'doc'" },
+]
+provides-extras = ["doc", "speedups", "ows", "plotting", "srtm", "test"]
 
 [[package]]
 name = "certifi"
@@ -717,6 +767,8 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "bottleneck" },
+    { name = "cartopy", version = "0.25.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'win32'" },
+    { name = "cartopy", version = "0.25.0", source = { path = "wheels/cartopy-0.25.0-cp314-cp314-win_amd64.whl" }, marker = "sys_platform == 'win32'" },
     { name = "dask" },
     { name = "earthaccess" },
     { name = "geopandas" },
@@ -759,6 +811,8 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "bottleneck", specifier = ">=1.6.0" },
+    { name = "cartopy", marker = "sys_platform != 'win32'", specifier = ">=0.25.0" },
+    { name = "cartopy", marker = "sys_platform == 'win32'", path = "wheels/cartopy-0.25.0-cp314-cp314-win_amd64.whl" },
     { name = "dask", specifier = ">=2026.1.2" },
     { name = "earthaccess", specifier = ">=0.16.0" },
     { name = "geopandas", specifier = ">=1.1.2" },
@@ -920,7 +974,8 @@ version = "1.15.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "bokeh" },
-    { name = "cartopy" },
+    { name = "cartopy", version = "0.25.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'win32'" },
+    { name = "cartopy", version = "0.25.0", source = { path = "wheels/cartopy-0.25.0-cp314-cp314-win_amd64.whl" }, marker = "sys_platform == 'win32'" },
     { name = "holoviews" },
     { name = "numpy" },
     { name = "packaging" },
@@ -1804,7 +1859,7 @@ dependencies = [
     { name = "numpy", marker = "sys_platform == 'win32'" },
 ]
 wheels = [
-    { filename = "numcodecs-0.15.1-cp314-cp314-win_amd64.whl", hash = "sha256:627fc4bc22066fd86f03ed37e7cca087e8f085d70f19c518ba535a310bf01947" },
+    { filename = "numcodecs-0.15.1-cp314-cp314-win_amd64.whl", hash = "sha256:bd53b4daa13cb170bfe913916ddeba2f04816c67a32a51102a9e0b36529893c5" },
 ]
 
 [package.metadata]
@@ -2241,7 +2296,7 @@ dependencies = [
     { name = "numpy", marker = "sys_platform == 'win32'" },
 ]
 wheels = [
-    { filename = "pyhdf-0.11.6-cp314-cp314-win_amd64.whl", hash = "sha256:8a02cd91b9f2ebb333151cb25ca3c6618dc0aeaaa39ecb358dfe86681314b0c6" },
+    { filename = "pyhdf-0.11.6-cp314-cp314-win_amd64.whl", hash = "sha256:0746b765d5a7ae2d80f9f34b5df3bc7a4432d40f118c24f19e01d9e600747a0a" },
 ]
 
 [package.metadata]
