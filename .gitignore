@@ -4,7 +4,7 @@ DEV*
 dev/
 DEV/
 
-# Local app data
+# Local app data (outputs, processed files, raw downloads)
 state/
 appdata/
 *.tif*
@@ -16,7 +16,10 @@ __pycache__/
 *.py[oc]
 build/
 dist/
-wheels/
+# Ignore generated wheels but track pre-built ones for packages with no PyPI
+# binary for Python 3.14 / Windows (e.g. pyhdf).
+wheels/*
+!wheels/pyhdf-*.whl
 *.egg-info
 .ipynb_checkpoints
 

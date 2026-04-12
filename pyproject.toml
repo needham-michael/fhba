@@ -6,7 +6,7 @@ readme = "README.md"
 authors = [
     { name = "needham-michael", email = "153653339+needham-michael@users.noreply.github.com" }
 ]
-requires-python = ">=3.13"
+requires-python = ">=3.14"
 dependencies = [
     "bottleneck>=1.6.0",
     "dask>=2026.1.2",
@@ -36,6 +36,12 @@ dependencies = [
     "xarray>=2025.11.0",
     "zarr>=2.12.0",
 ]
+
+[tool.uv]
+required-version = ">=0.11.2"
+# pyhdf has no cp314 Windows wheel on PyPI; use the pre-built local wheel instead.
+# Any contributor on Python 3.14 / Windows will get this automatically via uv sync.
+find-links = ["wheels"]
 
 [build-system]
 requires = ["hatchling"]
