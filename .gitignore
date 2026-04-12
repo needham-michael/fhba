@@ -20,6 +20,8 @@ dist/
 # binary for Python 3.14 / Windows (e.g. pyhdf).
 wheels/*
 !wheels/pyhdf-*.whl
+!wheels/cartopy-*.whl
+!wheels/numcodecs-*.whl
 *.egg-info
 .ipynb_checkpoints
 

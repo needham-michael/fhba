@@ -39,9 +39,16 @@ dependencies = [
 
 [tool.uv]
 required-version = ">=0.11.2"
-# pyhdf has no cp314 Windows wheel on PyPI; use the pre-built local wheel instead.
-# Any contributor on Python 3.14 / Windows will get this automatically via uv sync.
+# Pre-built wheels for packages with no cp314 Windows wheel on PyPI.
+# find-links covers pyhdf (no cp314 wheel exists on PyPI at all).
+# uv.sources overrides cartopy and numcodecs, which have only sdists on PyPI
+# (uv would otherwise try to compile them, requiring Visual Studio).
 find-links = ["wheels"]
+
+[tool.uv.sources]
+# Windows cp314 only — on other platforms PyPI sdist / existing wheels are used.
+cartopy   = { path = "wheels/cartopy-0.25.0-cp314-cp314-win_amd64.whl",   marker = "sys_platform == 'win32'" }
+numcodecs = { path = "wheels/numcodecs-0.15.1-cp314-cp314-win_amd64.whl", marker = "sys_platform == 'win32'" }
 
 [build-system]
 requires = ["hatchling"]
