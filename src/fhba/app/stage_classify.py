@@ -44,17 +44,7 @@ class StageClassify(param.Parameterized):
 
     #     pass
 
-    @param.depends('year','satellite','registry','gm')
-    def view(self):
-        instr = get_instructions("06_eucl_categ.md",instr_width=250)
-        instr.objects += [
-                pn.pane.Alert(
-                    "Tip: If many spurious small burned pixels appear, try increasing "
-                    "unburned training points near those features.",
-                    sizing_mode='stretch_width', alert_type='warning')
-            ]
-
-        table, gm_df = self.table_pane(return_df=True)
+    def get_widgets(self, gm_df):
 
         analysis_date_selector = pn.widgets.Select(
             name="Post-fire Analysis Date",
@@ -82,8 +72,9 @@ class StageClassify(param.Parameterized):
         method_help = pn.pane.Markdown(
             "_eucl_ – Euclidean distance (fast, no training required)  \n"
             "_rf_ – Random Forest (recommended for accuracy)  \n"
-            "_svm_ – Support Vector Machine",
-            width=300,
+            "_svm_ – Support Vector Machine \n\n"
+            "Use **Classify with All Methods** to run all classification methods at once.",
+            sizing_mode='stretch_width',
         )
 
         load_img_button = pn.widgets.Button(
@@ -98,14 +89,45 @@ class StageClassify(param.Parameterized):
             name="Export Burnmask", button_type="primary", width=150
         )
 
+        categorize_all_button = pn.widgets.Button(
+            name='Classify with All Methods', button_type='warning', width=200
+        )
+        
+        loading = pn.indicators.LoadingSpinner(name="Loading Image...", width=200, height=50,visible=False,value=False)
+
+        return analysis_date_selector, pre_fire_date_selector, method_selector, method_help, \
+            load_img_button, categorize_pixel_button, export_burnmask_button, \
+            categorize_all_button, loading
+
+    @param.depends('year','satellite','registry','gm')
+    def view(self):
+        instr = get_instructions("06_eucl_categ.md",instr_width=250)
+        instr.objects += [
+                pn.pane.Alert(
+                    "Tip: If many spurious small burned pixels appear, try increasing "
+                    "unburned training points near those features.",
+                    sizing_mode='stretch_width', alert_type='warning')
+            ]
+
+        table, gm_df = self.table_pane(return_df=True)
+
+        analysis_date_selector, pre_fire_date_selector, method_selector, method_help, \
+            load_img_button, categorize_pixel_button, export_burnmask_button, \
+            categorize_all_button, loading = self.get_widgets(gm_df=gm_df)
+
         county_overlay = self.gm.get_county_overlay().opts(width=500, height=1000)
 
         hv_pane = pn.pane.HoloViews(county_overlay)
         burnmask_pane = pn.pane.HoloViews(county_overlay)
 
-        loading = pn.indicators.LoadingSpinner(name="Loading Image...", width=200, height=50,visible=False,value=False)
-
         polys_areamask, poly_stream = initialize_userpolys()
+
+        alert_pane = pn.pane.Alert(
+            f"Performing one-time resampling of NLCD from full resolution to '{self.gm.spatial_name}' domain. This may take a few minutes...",
+            visible=False,
+            alert_type='warning',
+            width=400
+            )
 
         def update_hv_rgb_with_points(event):
             date = analysis_date_selector.value
@@ -158,20 +180,7 @@ class StageClassify(param.Parameterized):
             loading.value = False
             loading.visible = False
 
-        load_img_button.on_click(
-            lambda event: pn.state.notifications.info(f"Loading image for analysis date: {analysis_date_selector.value}")
-        )
-
-        load_img_button.on_click(update_hv_rgb_with_points)
-
-        alert_pane = pn.pane.Alert(
-            f"Performing one-time resampling of NLCD from full resolution to '{self.gm.spatial_name}' domain. This may take a few minutes...",
-            visible=False,
-            alert_type='warning',
-            width=400
-            )
-
-        def categorize_pixels(event):
+        def categorize_pixels(event,display=True):
             date = analysis_date_selector.value
             method = method_selector.value
             pre_date = pre_fire_date_selector.value
@@ -243,7 +252,6 @@ class StageClassify(param.Parameterized):
             )
 
             burnmask.rio.to_raster(burnmask_tmp_file)
-
             pn.state.notifications.info(f"Loading burnmask for date: {date}")
             loading.name='Loading Burnmask...'
 
@@ -268,7 +276,12 @@ class StageClassify(param.Parameterized):
             loading.value = False
             loading.visible = False
 
-        categorize_pixel_button.on_click(categorize_pixels)
+        def categorize_pixels_all_methods(event):
+            for method in method_selector.options:
+                pn.state.notifications.info(f"Classifying pixels using method: {method}",duration=6000)
+                method_selector.value = method
+                categorize_pixels(event,display=False)
+                export_burnmask(event)
 
         def export_burnmask(event):
 
@@ -336,7 +349,17 @@ class StageClassify(param.Parameterized):
 
             os.remove(burnmask_tmp_file)
 
+
+        load_img_button.on_click(
+            lambda event: pn.state.notifications.info(f"Loading image for analysis date: {analysis_date_selector.value}")
+        )
+        load_img_button.on_click(update_hv_rgb_with_points)
+
         export_burnmask_button.on_click(export_burnmask)
+
+        categorize_pixel_button.on_click(categorize_pixels)
+
+        categorize_all_button.on_click(categorize_pixels_all_methods)
 
         pane = pn.Row(
             instr,
@@ -344,7 +367,7 @@ class StageClassify(param.Parameterized):
                 pn.pane.Markdown("## Classify Pixels"),
                 pn.Row(analysis_date_selector, pre_fire_date_selector,method_selector),
                 method_help,
-                pn.Row(load_img_button, categorize_pixel_button),
+                pn.Row(load_img_button, categorize_pixel_button, categorize_all_button),
                 pn.layout.Divider(),
                 table,margin=(40, 10), width=600,styles={'background': '#f0f0f0'}
             ),

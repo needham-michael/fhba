@@ -175,7 +175,7 @@ class StageAggregate(param.Parameterized):
                 download_stats_button.visible = True
 
                 total_km2 = gdf.loc[gdf['county_name'] == 'Total', 'burned_area_km2'].iloc[0]
-                total_acres = sgdf.loc[gdf['county_name'] == 'Total', 'burned_area_acres'].iloc[0]
+                total_acres = gdf.loc[gdf['county_name'] == 'Total', 'burned_area_acres'].iloc[0]
                 result_md.object += (
                     f"\n\n**Total burned area (through {date_str}):** {total_acres:,.0f} acres  "
                     f"({total_km2:.1f} km²)"
