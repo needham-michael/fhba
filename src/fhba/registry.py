@@ -21,6 +21,7 @@ import xarray as xr
 
 from satpy.scene import Scene
 from satpy.enhancements import overlays
+from scipy import ndimage as ndi
 
 from fhba.eucl_classifier import classify_pixels_eucl
 from fhba.image import nonlinear_enhancement
@@ -513,6 +514,89 @@ class GranuleManager:
             
             if flip_single_pixels:
                 nlcd_mask_values = flip_singletons(nlcd_mask_values,diagonals=False)
+
+            dst.write(nlcd_mask_values,1)
+
+        return
+    
+    def resample_openwatermask(
+            self,openwater_mask_file_fullres,openwater_mask_file,flip_single_pixels=True,
+            open_water_dilation_iterations=2):
+        """Resample NLCD Open Water Mask to the local spatial domain using nearest-neighbor"""
+        import rasterio
+        import rioxarray as rxr
+        from pyresample import image, geometry
+        from pyresample.kd_tree import XArrayResamplerNN
+        from rasterio.transform import Affine
+        
+        from fhba.process_landcover_mask import get_nlcd_area_definition, flip_singletons
+
+        nlcd_mask = rxr.open_rasterio(openwater_mask_file_fullres)
+
+        area_nlcd = get_nlcd_area_definition(nlcd_mask)
+
+        resampler = XArrayResamplerNN(
+            source_geo_def=area_nlcd,
+            target_geo_def=self.satpy_area_def,
+            radius_of_influence=90
+        )
+
+        # The following line appears to fix a bug within pyresample. Otherwise the get_sample_from_neighbour_info
+        # function call fails...
+        resampler.index_array = resampler.get_neighbour_info()[2]
+
+        nlcd_mask_resampled = resampler.get_sample_from_neighbour_info(
+            data=nlcd_mask.isel(band=0),
+            fill_value=nlcd_mask._FillValue
+        )
+
+        # Apply binary dilation on the inverted resampled field (0-open water, 1-other) 
+        # to remove small features, then apply binary dilation 4 times on the resultant 
+        # field to make a large buffer around large features
+        mask_small_features = ndi.binary_dilation(
+            1-ndi.binary_dilation(1-nlcd_mask_resampled),
+            iterations=4) 
+        
+        # Apply this interim mask to the original resampled field to retain the finer-
+        # scale features of the large water bodies
+        mask_interim = mask_small_features * nlcd_mask_resampled
+
+        # Apply a final binary dilation to extend the feature edges around large features
+        mask_final = ndi.binary_dilation(mask_interim,iterations=1)
+
+        extent = self.satpy_area_def.area_extent
+
+        dx, dy = self.satpy_area_def.resolution
+
+        # x and y coords of upper left corner
+        x0 = extent[0]
+        y0 = extent[3]
+
+        geotransform = [dx,0.0,x0,0.0,-dy,y0]
+        geotransform = [float(x) for x in geotransform]
+
+        geotransform = Affine(*geotransform)
+
+        with rasterio.open(
+            openwater_mask_file,
+            'w',
+            driver='GTiff',
+            height=1000,
+            width=500,
+            count=1,
+            dtype='int8',
+            crs=self.satpy_area_def.crs.to_proj4(),
+            transform=geotransform
+        ) as dst:
+            
+            nlcd_mask_values = nlcd_mask_resampled.values
+            
+            if flip_single_pixels:
+                nlcd_mask_values = flip_singletons(nlcd_mask_values,diagonals=False)
+
+            if open_water_dilation_iterations > 0:
+                nlcd_mask_values = ndi.binary_dilation(
+                    nlcd_mask_values,iterations=open_water_dilation_iterations)
 
             dst.write(nlcd_mask_values,1)
 
