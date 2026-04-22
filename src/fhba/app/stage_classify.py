@@ -201,6 +201,12 @@ class StageClassify(param.Parameterized):
             lcmask_exists = os.path.exists(landcover_mask_file)
             lcmask_fullres_exists = os.path.exists(landcover_mask_file_fullres)
 
+            openwater_mask_file_fullres = importlib.resources.files("fhba.app.appdata.annual_nlcd") / f"NLCD_OpenWaterMask_{self.gm.spatial_name}.tif"
+            openwater_mask_file = importlib.resources.files("fhba.app.appdata.annual_nlcd") / f"NLCD_OpenWaterMask_{self.gm.spatial_name}_{self.gm.instrument}.tif"
+
+            openwater_exists = os.path.exists(openwater_mask_file)
+            openwater_fullres_exists = os.path.exists(openwater_mask_file_fullres)
+
             if not lcmask_exists:
                 if not lcmask_fullres_exists:
                     pn.state.notifications.error("Landcover Mask File Not Found",duration=6000)
@@ -221,6 +227,26 @@ class StageClassify(param.Parameterized):
                 loading.name='Classifying Pixels...'
                 alert_pane.visible = False
 
+            if not openwater_exists:
+                if not openwater_fullres_exists:
+                    pn.state.notifications.error("Openwater Mask File Not Found.",duration=6000)
+                    loading.value = False
+                    loading.visible = False
+                    return
+                
+                # pn.state.notifications.warning(f"Performing one-time resampling of NLCD from full resolution to '{self.gm.spatial_name}' domain.")
+
+                loading.name='Resampling Openwater Mask (may take some time)...'
+                alert_pane.visible = True
+
+                self.gm.resample_openwatermask(
+                    openwater_mask_file_fullres=openwater_mask_file_fullres,
+                    openwater_mask_file=openwater_mask_file
+                )
+
+                loading.name='Classifying Pixels...'
+                alert_pane.visible = False
+
             burnmask, confidence_ds = self.gm.classify_pixels(
                     method=method,
                     date=date,
@@ -228,8 +254,11 @@ class StageClassify(param.Parameterized):
                     pre_fire_date=pre_date,
                 )
             
+            # Additional mask to cover areas in the vacinity of large water bodies
+            openwater_mask = 1-rxr.open_rasterio(openwater_mask_file).squeeze()
+            
             loading.name='Saving Temporary Results...'
-            burnmask = burnmask.rio.write_crs(
+            burnmask = (burnmask * openwater_mask).rio.write_crs(
                 rasterio.crs.CRS.from_user_input(self.gm.satpy_area_def.proj_str)
             )
 

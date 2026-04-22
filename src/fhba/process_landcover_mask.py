@@ -173,9 +173,23 @@ def main():
     nlcd_land_mask = np.logical_or(
         nlcd_clipped == 71, nlcd_clipped == 81
     ).fillna(0)
+    
+    if not os.path.exists(output_filename):
+        print("Saving land mask to file ...")
+        nlcd_land_mask.rio.to_raster(output_filename,compress='LZMA',dtype="int16")
+    else:
+        print("Land mask file already exists. Skipping writing to disk.")
 
-    print("Saving land mask to file ...")
-    nlcd_land_mask.rio.to_raster(output_filename,compress='LZMA',dtype="int16")
+    output_filename = importlib.resources.files(nlcd_filedir.replace("/",".")) / f"NLCD_OpenWaterMask_{spatial_name}.tif"
+
+    print("Generating Additional NLCD mask for class 11 (Open Water)...")
+    nlcd_open_water_mask = (nlcd_clipped == 11).fillna(0)
+    
+    if not os.path.exists(output_filename):
+        print("Saving open water mask to file ...")
+        nlcd_open_water_mask.rio.to_raster(output_filename,compress='LZMA',dtype="int16")
+    else:
+        print("Open water mask file already exists. Skipping writing to disk.")
 
     end_time = perf_counter()
     elapsed_time = end_time - start_time
