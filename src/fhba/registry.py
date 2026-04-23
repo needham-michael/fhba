@@ -521,7 +521,7 @@ class GranuleManager:
     
     def resample_openwatermask(
             self,openwater_mask_file_fullres,openwater_mask_file,flip_single_pixels=True,
-            open_water_dilation_iterations=2):
+            open_water_dilation_iterations=2,return_mask=False):
         """Resample NLCD Open Water Mask to the local spatial domain using nearest-neighbor"""
         import rasterio
         import rioxarray as rxr
@@ -564,6 +564,9 @@ class GranuleManager:
         # Apply a final binary dilation to extend the feature edges around large features
         mask_final = ndi.binary_dilation(mask_interim,iterations=1)
 
+        if return_mask:
+            return mask_final
+
         extent = self.satpy_area_def.area_extent
 
         dx, dy = self.satpy_area_def.resolution
@@ -588,17 +591,8 @@ class GranuleManager:
             crs=self.satpy_area_def.crs.to_proj4(),
             transform=geotransform
         ) as dst:
-            
-            nlcd_mask_values = nlcd_mask_resampled.values
-            
-            if flip_single_pixels:
-                nlcd_mask_values = flip_singletons(nlcd_mask_values,diagonals=False)
 
-            if open_water_dilation_iterations > 0:
-                nlcd_mask_values = ndi.binary_dilation(
-                    nlcd_mask_values,iterations=open_water_dilation_iterations)
-
-            dst.write(nlcd_mask_values,1)
+            dst.write(mask_final,1)
 
         return
 
