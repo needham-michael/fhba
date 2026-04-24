@@ -520,8 +520,7 @@ class GranuleManager:
         return
     
     def resample_openwatermask(
-            self,openwater_mask_file_fullres,openwater_mask_file,flip_single_pixels=True,
-            open_water_dilation_iterations=2,return_mask=False):
+            self,openwater_mask_file_fullres,openwater_mask_file,flip_single_pixels=True,return_mask=False):
         """Resample NLCD Open Water Mask to the local spatial domain using nearest-neighbor"""
         import rasterio
         import rioxarray as rxr
