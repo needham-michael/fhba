@@ -6,6 +6,7 @@ DEV/
 _refs/
 _docs/
 _scratch*
+_*/
 
 # Local app data
 state/
