@@ -22,3 +22,8 @@ wheels/
 
 # Virtual environments
 .venv
+
+# GIS file types
+*.aprx
+*.gdb
+*.qgz
