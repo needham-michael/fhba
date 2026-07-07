@@ -4,6 +4,7 @@ DEV*
 dev/
 DEV/
 _refs/
+_docs/
 _scratch*
 
 # Local app data
