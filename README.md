@@ -21,7 +21,7 @@ Launch the server with
 
 ```shell
 # include the --show flag to automatically open in the default browser
-panel serve .\src\fhba\app\app.py --show
+uv run panel serve .\src\fhba\app\app.py --show
 ```
 
 <hr>
@@ -37,6 +37,8 @@ Placeholder
 ### 1. Python environment setup
 
 > For ease of use, this project relies on `uv` for python environment management. See the `uv` User's Guide for __[Installation Instructions](https://docs.astral.sh/uv/getting-started/installation/#installing-uv)__ via `pip`.
+
+
 
 Run `uv sync` from to install the necessary third-party packages into a `.venv` within the project directory:
 
