@@ -3,6 +3,7 @@ dev*
 DEV*
 dev/
 DEV/
+_refs/
 
 # Local app data
 state/
