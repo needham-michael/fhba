@@ -68,7 +68,41 @@ class StageSetup(param.Parameterized):
 
     def panel(self):
         return pn.Row(self.view,)
+    
+class StageSetupAgg(param.Parameterized):
+    year = param.Selector(default=datetime.now().year, objects=list(range(2017, datetime.now().year + 1)))
 
+    @param.output(('registry',param.Parameter))
+    def output(self):
+
+        # Skip getting the satpy_area_def since no processing occurs in this portion
+        # of the application. Also skip authentication with earthaccess for a similar
+
+        registry = Registry(get_satpy_area_def=True,auth_earthaccess=False).load_json()
+
+        if str(self.year) not in registry.granule_registry:
+            registry.add_granule_registry(str(self.year))
+            registry.save_json()
+
+        return registry
+    
+    @param.depends('year')
+    def view(self):
+
+        instr = get_instructions(
+            "07_instr_select_year.md", instr_width=800, as_card=False)
+
+        pane = pn.Column(
+            instr,
+            self.param.year,
+            margin=(40, 40), sizing_mode='stretch_both',styles={'background': '#f0f0f0'}
+        )
+
+        return pane
+    
+    def panel(self):
+        return pn.Row(self.view,)
+    
 def build_app():
 
     pipeline_download = pn.pipeline.Pipeline(debug=True)
@@ -83,7 +117,7 @@ def build_app():
     pipeline_classify.add_stage(name="Categorize",stage=StageClassify)
 
     pipeline_aggregate = pn.pipeline.Pipeline(debug=True)
-    pipeline_aggregate.add_stage(name="Select Instrument",stage=StageSetup)
+    pipeline_aggregate.add_stage(name="Select Instrument",stage=StageSetupAgg)
     pipeline_aggregate.add_stage(name="Aggregate Burn Masks",stage=StageAggregate)
 
     # Placeholder for tab setup to separate YTD burn mask aggregation and stats
