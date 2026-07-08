@@ -16,6 +16,7 @@ from fhba.app.stage_download_granules import StageDownloadGranules
 from fhba.app.stage_analyze import StageAnalyze
 from fhba.app.stage_classify import StageClassify
 from fhba.app.stage_aggregate import StageAggregate
+from fhba.app.stage_preview_burnmaps import StagePreviewBurnmaps
 from fhba.app.utils import get_instructions
 
 pn.extension('tabulator','terminal')
@@ -119,6 +120,7 @@ def build_app():
     pipeline_aggregate = pn.pipeline.Pipeline(debug=True)
     pipeline_aggregate.add_stage(name="Select Instrument",stage=StageSetupAgg)
     pipeline_aggregate.add_stage(name="Aggregate Burn Masks",stage=StageAggregate)
+    pipeline_aggregate.add_stage(name="View Burn Masks",stage=StagePreviewBurnmaps)
 
     # Placeholder for tab setup to separate YTD burn mask aggregation and stats
     with open("README.md") as f:

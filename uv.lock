@@ -313,6 +313,17 @@ css = [
 ]
 
 [[package]]
+name = "blume"
+version = "0.2.7"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "matplotlib" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/0a/ea/e73a67c7fa8b80416ef161eb53d9eceb2d11038fdf7699112b5ef6027e02/blume-0.2.7-py3-none-any.whl", hash = "sha256:bee6bfd83d0a0fef3c1be9d226a4e272ac25e926d1c951a8394d1acf53115a61", size = 94099, upload-time = "2024-11-02T16:00:37.698Z" },
+]
+
+[[package]]
 name = "bokeh"
 version = "3.8.2"
 source = { registry = "https://pypi.org/simple" }
@@ -838,6 +849,7 @@ name = "fhba"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "blume" },
     { name = "bottleneck" },
     { name = "dask" },
     { name = "earthaccess" },
@@ -877,6 +889,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "blume", specifier = ">=0.2.7" },
     { name = "bottleneck", specifier = ">=1.6.0" },
     { name = "dask", specifier = ">=2026.1.2" },
     { name = "earthaccess", specifier = ">=0.16.0" },

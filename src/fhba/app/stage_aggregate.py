@@ -1,13 +1,14 @@
 import datetime
 import os
-import re
 
+import geopandas as gpd
 import pandas as pd
 import panel as pn
 import param
 
 from fhba.app.utils import get_instructions
 from fhba.aggregate_burnmasks import SatelliteBurnmask, UnifiedBurnmask, get_burn_area_by_county
+from fhba.generate_burnmask_figure import generate_burnmask_figure
 
 class StageAggregate(param.Parameterized):
 
@@ -76,7 +77,11 @@ class StageAggregate(param.Parameterized):
         stats_table = pn.pane.DataFrame(pd.DataFrame(), index=False, width=600)
         stats_table_heading = pn.pane.Markdown(f"")
         
+        proj = self.registry.satpy_area_def.to_cartopy_crs()
         county_shp = self.registry.county_shp + ".shp"
+        county_gdf = gpd.read_file(county_shp)
+        county_gdf = county_gdf.to_crs(proj)
+        
 
         product_convention = {
             'Suomi-NPP':'VNP',
@@ -95,12 +100,6 @@ class StageAggregate(param.Parameterized):
 
             loading.value = True
 
-            ## NEXT STEPS FOLLOWING WORK ON 7/7/2026
-            ## Need to ensure that the filename YTD date is aligned with the 
-            ## correct date from the various by-date burnmasks.
-
-            pn.state.notifications.info(f"Generating Burnmask...")
-
             filename = f"viirs_burnmask_{self.year}"
 
             burnmasks = {}
@@ -116,12 +115,17 @@ class StageAggregate(param.Parameterized):
             print(f"2. {ytd = }")
 
             for satellite in satellite_checkbox.value:
-                print(f"{satellite = }")
-                bm = SatelliteBurnmask(satellite=satellite,year=self.year,classification_methods=classification_methods)
-                bm.merge_burnmasks(verbose=False,method='majority',max_date=ytd)
-                burnmasks[satellite] = bm
+                try:
+                    print(f"{satellite = }")
+                    bm = SatelliteBurnmask(satellite=satellite,year=self.year,classification_methods=classification_methods)
+                    bm.merge_burnmasks(verbose=False,method='majority',max_date=ytd)
+                    burnmasks[satellite] = bm
 
-                filename += f"_{product_convention[satellite]}"
+                    filename += f"_{product_convention[satellite]}"
+                except:
+                    # Skip when a satellite has not had a burn mask YTD, occurs
+                    # early in the season
+                    pass
                 
             burnmask = UnifiedBurnmask(
                 burnmasks = burnmasks,
@@ -148,7 +152,15 @@ class StageAggregate(param.Parameterized):
             stats_table.object = table
             stats_table_heading.object = f"### Burned Area by County (through {ytd.strftime("%Y-%m-%d")})"
 
-            pn.state.notifications.info(f"Burnmask Generated.")
+            generate_burnmask_figure(
+                date = ytd.strftime("%Y-%m-%d"),
+                initial_date = valid_dates[0],
+                filename = filename,
+                annotation = filename.split(os.sep)[-1].split(".tif")[0].replace("_","-"),
+                proj = proj,
+                county_gdf=county_gdf
+            )
+
             loading.value = False
 
         def generate_all_burnmask_ytd(event):
@@ -190,7 +202,10 @@ class StageAggregate(param.Parameterized):
                         satellite_checkbox
                     ),
                     pn.Row(ytd_selector,),
-                    pn.Row(generate_button, pn.Column(generate_all_button,progress_bar)),
+                    pn.Row(
+                        # generate_button, # Hide this button since expect user to look at entire season
+                        pn.Column(generate_all_button,progress_bar)
+                        ),
                 ),
                 loading,
                 stats_table_heading,
