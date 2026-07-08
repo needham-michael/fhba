@@ -1,3 +1,4 @@
+import datetime
 import os
 import re
 
@@ -6,14 +7,12 @@ import panel as pn
 import param
 
 from fhba.app.utils import get_instructions
-
+from fhba.aggregate_burnmasks import SatelliteBurnmask, UnifiedBurnmask, get_burn_area_by_county
 
 class StageAggregate(param.Parameterized):
 
     year = param.Integer()
-    satellite = param.String()
     registry = param.Parameter()
-    gm = param.Parameter()
 
     def get_widgets(self):
 
@@ -24,11 +23,11 @@ class StageAggregate(param.Parameterized):
             # disabled=True
         )
 
-        compute_stats_button = pn.widgets.Button(
-            name="Compute County Area Statistics",
-            button_type="default",
+        generate_all_button = pn.widgets.Button(
+            name="Generate All YTD Burn Maps",
+            button_type="primary",
             width=220,
-            disabled=True
+            # disabled=True
         )
 
         download_stats_button = pn.widgets.FileDownload(
@@ -39,16 +38,8 @@ class StageAggregate(param.Parameterized):
         )
 
         loading = pn.indicators.LoadingSpinner(
-            name="Processing...", width=200, height=50,
+            name="", width=200, height=50,
             visible=False, value=False
-        )
-
-         # Classification method selector
-        method_selector = pn.widgets.Select(
-            name="Classification Method",
-            options=['eucl', 'rf', 'svm'],
-            value='eucl',
-            width=120,
         )
 
         ytd_selector = pn.widgets.DatePicker(
@@ -60,154 +51,149 @@ class StageAggregate(param.Parameterized):
             ).strftime("%Y-%m-%d")),
         )
 
-        as_doy_selector = pn.widgets.Checkbox(
-            name="Record burned area by DOY",
-            value=False,
-            width=220,
+        satellite_options = list(self.registry[self.year].satellites.keys())
+
+        satellite_checkbox = pn.widgets.CheckBoxGroup(
+            options=satellite_options,
+            value=satellite_options
         )
 
-        return generate_button, compute_stats_button, download_stats_button, loading, method_selector,ytd_selector, as_doy_selector
+        progress_bar = pn.widgets.Tqdm()
 
-    @param.depends('year', 'satellite', 'registry', 'gm')
+        return generate_button, generate_all_button, download_stats_button, loading,ytd_selector, satellite_checkbox, progress_bar
+
+    @param.depends('year', 'registry',)
     def view(self):
-
-        instr = get_instructions("07_instr_aggregate.md", instr_width=250)
+        instr = get_instructions("08_instr_aggregate.md", instr_width=250)
         instr.objects += [pn.pane.Alert(
-                    "Aggregation unions all finalized burn masks for this year/satellite "
-                    "into a single seasonal map.",
+                    "Aggregation unions all finalized burn masks from selected satllites for this year"
+                    "into a single YTD seasonal map.",
                     alert_type='info',width=250)]
         
-        # -- Status table -------------------------------------------------------
-        gm_df = self.gm.to_df().reset_index()
-        gm_df = gm_df.rename(columns={'index': 'date'})
-        categorized = gm_df[gm_df['categorization_status'] == 'Categorized']
-        n_ready = len(categorized)
-
-        status_md = pn.pane.Markdown(
-            f"**Burn mask(s) ready for aggregation by method:**\n\n" +
-            ("No burn masks found. Please complete Stage 6 for at least one date first."
-             if n_ready == 0 else ""),
-            width=600
-        )
-
-        table = pn.pane.DataFrame(
-            pd.DataFrame(
-                [pd.Series(data=list(sorted(self.gm.burnmask_by_date[method].keys())), name=method) for method in ['eucl','rf','svm']]).T,
-            index=False,
-            width=300
-        )
-
-        # -- Controls -----------------------------------------------------------
-        generate_button, compute_stats_button, download_stats_button, loading, method_selector, ytd_selector, as_doy_selector = self.get_widgets()
+        generate_button, generate_all_button, download_stats_button, loading,ytd_selector, satellite_checkbox, progress_bar = self.get_widgets()
 
 
-        result_md = pn.pane.Markdown("", width=600)
         stats_table = pn.pane.DataFrame(pd.DataFrame(), index=False, width=600)
+        stats_table_heading = pn.pane.Markdown(f"")
+        
+        county_shp = self.registry.county_shp + ".shp"
 
-        # Holds the seasonal burnmask path once generated
-        _state = {'seasonal_file': None, 'stats_csv': None}
+        product_convention = {
+            'Suomi-NPP':'VNP',
+            'NOAA-20':'VJ1',
+            'NOAA-21':'VJ2'
+        }
 
-        def generate_seasonal(event):
-            loading.value = True
-            loading.visible = True
-            result_md.object = ""
+        classification_methods = ['eucl','rf','svm']
 
-            try:
-                method = method_selector.value
-                seasonal_file = self.gm.aggregate_burnmasks(
-                    method=method,
-                    ytd_cutoff=str(ytd_selector.value),
-                    as_doy=as_doy_selector.value
-                    )
-                _state['seasonal_file'] = seasonal_file
-                result_md.object = (
-                    f"✅ Seasonal burn map saved to:\n\n`{seasonal_file}`"
-                )
-                compute_stats_button.disabled = False
-                pn.state.notifications.success(
-                    "Seasonal burn map generated successfully.", duration=5000)
+        def generate_burnmask_ytd(event):
 
-            except Exception as exc:
-                result_md.object = f"❌ Error: {exc}"
-                pn.state.notifications.error(str(exc), duration=8000)
-
-            finally:
-                loading.value = False
-                loading.visible = False
-
-        def compute_stats(event):
-            if _state['seasonal_file'] is None:
-                pn.state.notifications.warning("Generate the seasonal burn map first.")
-                return
+            output_dir = os.sep.join(self.registry.raw_data_dir.split(os.sep)[:-1])
+            output_dir = os.sep.join([output_dir,"final_burnmask"])
+            output_dir = os.sep.join([output_dir,str(self.year)])
+            os.makedirs(output_dir,exist_ok=True)
 
             loading.value = True
-            loading.visible = True
 
-            file_date = re.search(r'(\d{4}-\d{2}-\d{2})', _state['seasonal_file'])
-            date_str = file_date.group(1) if file_date else "unknown date"
+            ## NEXT STEPS FOLLOWING WORK ON 7/7/2026
+            ## Need to ensure that the filename YTD date is aligned with the 
+            ## correct date from the various by-date burnmasks.
 
-            try:
-                gdf = self.gm.compute_burn_area_by_county(_state['seasonal_file'])
+            pn.state.notifications.info(f"Generating Burnmask...")
 
-                print(f"== Burned area by county through {date_str} ==")
-                print(f"{gdf =}")
+            filename = f"viirs_burnmask_{self.year}"
+
+            burnmasks = {}
+
+            ytd = pd.to_datetime(ytd_selector.value)
+            
+            print("="*79)
+            print(f"1. {ytd = }")
+
+            if isinstance(ytd,type(pd.NaT)):
+                ytd = None
+
+            print(f"2. {ytd = }")
+
+            for satellite in satellite_checkbox.value:
+                print(f"{satellite = }")
+                bm = SatelliteBurnmask(satellite=satellite,year=self.year,classification_methods=classification_methods)
+                bm.merge_burnmasks(verbose=False,method='majority',max_date=ytd)
+                burnmasks[satellite] = bm
+
+                filename += f"_{product_convention[satellite]}"
+                
+            burnmask = UnifiedBurnmask(
+                burnmasks = burnmasks,
+                year = self.year,
+                classification_methods=classification_methods
+            )
+
+            if ytd is None:
+                ytd = pd.to_datetime(burnmask.burnmask_dates[-1])
+
+            valid_dates = [x for x in pd.to_datetime(burnmask.burnmask_dates) if x <= ytd]
+            ytd_j = valid_dates[-1].strftime("%j")
+            
+            filename += f"_YTD{ytd_j}.tif"
+            filename = os.sep.join([output_dir,filename])
+
+            burnmask.join_burnmasks(method='any')
+            burnmask.write_burnmask(filename,overwrite=True)
+
+            table = get_burn_area_by_county(filename,county_shp=county_shp)
+            table.to_csv(filename.replace(".tif",".csv"),index=False)
+            table = table[['county_name','state_name','burned_area_acres']]
+            table = table.rename(columns={'county_name':'County','state_name':'State','burned_area_acres':'Acres Burned'})
+            stats_table.object = table
+            stats_table_heading.object = f"### Burned Area by County (through {ytd.strftime("%Y-%m-%d")})"
+
+            pn.state.notifications.info(f"Burnmask Generated.")
+            loading.value = False
+
+        def generate_all_burnmask_ytd(event):
+
+            # Build a list of all possible dates with calculated burn masks
+            valid_dates = []
+            for sat in self.registry[self.year].satellites.keys():
+                gm = self.registry[self.year][sat]
+
+                for method in list(gm.burnmask_by_date):
+                    for date in gm.burnmask_by_date[method]:
+                        valid_dates.append(date)
+
+            # Convert to a set to remove duplicate values then back to a sorted list
+            valid_dates =  sorted(list(set(valid_dates)))
+
+            for date in progress_bar(valid_dates):
+
+                ytd_selector.value = datetime.date(*[int(x) for x in date.split("-")])
+
+                try:
+                    generate_burnmask_ytd(event)
+                except ValueError:
+                    pass
 
 
-                columns = ['county_name', 'burned_area_km2', 'burned_area_acres']
-                stats_df = gdf[gdf['county_name'] != 'Total'][columns].copy()
-                stats_df = stats_df.sort_values('burned_area_acres', ascending=False)
-                # Add the Total row back for display
-                total_row = gdf[gdf['county_name'] == 'Total'][columns]
-                stats_df = pd.concat([stats_df, total_row], ignore_index=True)
-                stats_table.object = stats_df
+        generate_button.on_click(generate_burnmask_ytd)
 
-                # Write CSV to a temp location for download
-                csv_path = os.path.join(
-                    self.gm.burnmask_dir,
-                    f"{self.gm.satellite_name}_{self.gm.spatial_name}_"
-                    f"{self.gm.start_date.split('-')[0]}_burn_area_by_county.csv"
-                )
-                stats_df.to_csv(csv_path, index=False)
-                _state['stats_csv'] = csv_path
-
-                download_stats_button.file = csv_path
-                download_stats_button.filename = os.path.basename(csv_path)
-                download_stats_button.visible = True
-
-                total_km2 = gdf.loc[gdf['county_name'] == 'Total', 'burned_area_km2'].iloc[0]
-                total_acres = gdf.loc[gdf['county_name'] == 'Total', 'burned_area_acres'].iloc[0]
-                result_md.object += (
-                    f"\n\n**Total burned area (through {date_str}):** {total_acres:,.0f} acres  "
-                    f"({total_km2:.1f} km²)"
-                )
-
-                pn.state.notifications.success("County statistics computed.", duration=5000)
-
-            except Exception as exc:
-                pn.state.notifications.error(str(exc), duration=8000)
-
-            finally:
-                loading.value = False
-                loading.visible = False
-
-        generate_button.on_click(generate_seasonal)
-        compute_stats_button.on_click(compute_stats)
+        generate_all_button.on_click(generate_all_burnmask_ytd)
 
         pane = pn.Row(
             instr,
             pn.Column(
                 pn.pane.Markdown("## Seasonal Burn Scar Aggregation"),
-                status_md,
-                table,
                 pn.layout.Divider(),
                 pn.Column(
-                    pn.Row(ytd_selector,method_selector,),
-                    as_doy_selector,
-                    pn.Row(generate_button, compute_stats_button),
+                    pn.Column(
+                        pn.pane.Markdown("#### Select Satellite(s) for Analysis (Only Analyzed Satellites Shown)"),
+                        satellite_checkbox
+                    ),
+                    pn.Row(ytd_selector,),
+                    pn.Row(generate_button, pn.Column(generate_all_button,progress_bar)),
                 ),
                 loading,
-                result_md,
-                pn.pane.Markdown(f"### Burned Area by County"),
+                stats_table_heading,
                 stats_table,
                 download_stats_button,
                 margin=(40, 10), sizing_mode='stretch_both',
@@ -216,6 +202,6 @@ class StageAggregate(param.Parameterized):
         )
 
         return pane
-
+    
     def panel(self):
         return pn.Row(self.view,)
