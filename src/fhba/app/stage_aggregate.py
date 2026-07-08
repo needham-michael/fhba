@@ -1,13 +1,14 @@
 import datetime
 import os
-import re
 
+import geopandas as gpd
 import pandas as pd
 import panel as pn
 import param
 
 from fhba.app.utils import get_instructions
 from fhba.aggregate_burnmasks import SatelliteBurnmask, UnifiedBurnmask, get_burn_area_by_county
+from fhba.generate_burnmask_figure import generate_burnmask_figure
 
 class StageAggregate(param.Parameterized):
 
@@ -76,7 +77,11 @@ class StageAggregate(param.Parameterized):
         stats_table = pn.pane.DataFrame(pd.DataFrame(), index=False, width=600)
         stats_table_heading = pn.pane.Markdown(f"")
         
+        proj = self.registry.satpy_area_def.to_cartopy_crs()
         county_shp = self.registry.county_shp + ".shp"
+        county_gdf = gpd.read_file(county_shp)
+        county_gdf = county_gdf.to_crs(proj)
+        
 
         product_convention = {
             'Suomi-NPP':'VNP',
@@ -147,6 +152,15 @@ class StageAggregate(param.Parameterized):
             table = table.rename(columns={'county_name':'County','state_name':'State','burned_area_acres':'Acres Burned'})
             stats_table.object = table
             stats_table_heading.object = f"### Burned Area by County (through {ytd.strftime("%Y-%m-%d")})"
+
+            generate_burnmask_figure(
+                date = ytd.strftime("%Y-%m-%d"),
+                initial_date = valid_dates[0],
+                filename = filename,
+                annotation = filename.split(os.sep)[-1].split(".tif")[0].replace("_","-"),
+                proj = proj,
+                county_gdf=county_gdf
+            )
 
             pn.state.notifications.info(f"Burnmask Generated.")
             loading.value = False
