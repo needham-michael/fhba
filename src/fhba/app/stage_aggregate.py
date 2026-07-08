@@ -100,12 +100,6 @@ class StageAggregate(param.Parameterized):
 
             loading.value = True
 
-            ## NEXT STEPS FOLLOWING WORK ON 7/7/2026
-            ## Need to ensure that the filename YTD date is aligned with the 
-            ## correct date from the various by-date burnmasks.
-
-            pn.state.notifications.info(f"Generating Burnmask...")
-
             filename = f"viirs_burnmask_{self.year}"
 
             burnmasks = {}
@@ -121,12 +115,17 @@ class StageAggregate(param.Parameterized):
             print(f"2. {ytd = }")
 
             for satellite in satellite_checkbox.value:
-                print(f"{satellite = }")
-                bm = SatelliteBurnmask(satellite=satellite,year=self.year,classification_methods=classification_methods)
-                bm.merge_burnmasks(verbose=False,method='majority',max_date=ytd)
-                burnmasks[satellite] = bm
+                try:
+                    print(f"{satellite = }")
+                    bm = SatelliteBurnmask(satellite=satellite,year=self.year,classification_methods=classification_methods)
+                    bm.merge_burnmasks(verbose=False,method='majority',max_date=ytd)
+                    burnmasks[satellite] = bm
 
-                filename += f"_{product_convention[satellite]}"
+                    filename += f"_{product_convention[satellite]}"
+                except:
+                    # Skip when a satellite has not had a burn mask YTD, occurs
+                    # early in the season
+                    pass
                 
             burnmask = UnifiedBurnmask(
                 burnmasks = burnmasks,
@@ -162,7 +161,6 @@ class StageAggregate(param.Parameterized):
                 county_gdf=county_gdf
             )
 
-            pn.state.notifications.info(f"Burnmask Generated.")
             loading.value = False
 
         def generate_all_burnmask_ytd(event):
@@ -204,7 +202,10 @@ class StageAggregate(param.Parameterized):
                         satellite_checkbox
                     ),
                     pn.Row(ytd_selector,),
-                    pn.Row(generate_button, pn.Column(generate_all_button,progress_bar)),
+                    pn.Row(
+                        # generate_button, # Hide this button since expect user to look at entire season
+                        pn.Column(generate_all_button,progress_bar)
+                        ),
                 ),
                 loading,
                 stats_table_heading,
