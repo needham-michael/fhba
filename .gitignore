@@ -9,6 +9,9 @@ _scratch*
 _*/
 _*
 
+# local credential files
+*.dodsrc
+
 # Local app data
 state/
 appdata/
