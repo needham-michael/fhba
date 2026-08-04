@@ -1452,18 +1452,14 @@ class Registry:
                 json.dump(data, f, indent=2)
         os.replace(tmpfile.name, json_file)
 
-    def load_json(self,json_file=importlib.resources.files('fhba') / 'app' / 'state' / 'registry.json'):
+    def load_json(self,json_file = None):
         """Load the registry from a JSON file."""
-        print(f"Loading registry from JSON file: {json_file}")
-        try:
-            with open(json_file, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                self.from_dict(data)
-        except FileNotFoundError:
-            print(f"JSON file {json_file} not found. Starting with an empty registry.")
-        except json.JSONDecodeError as e:
-            msg = f"Error decoding JSON from file {json_file}. Please ensure that the file contains valid JSON."
-            raise json.JSONDecodeError(msg, e.doc, e.pos) from e
+        from fhba.registry import load_json_registry 
+        if json_file is None:
+            json_file=importlib.resources.files('fhba') / 'app' / 'state' / 'registry.json'
+
+        data = load_json_registry(json_file)
+        self.from_dict(data)
         return self
         
     def __str__(self):
