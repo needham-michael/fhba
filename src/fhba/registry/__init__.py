@@ -1,0 +1,1 @@
+from fhba.registry.registry import Registry as Registry
