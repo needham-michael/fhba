@@ -7,7 +7,7 @@ _refs/
 _docs/
 _scratch*
 _*/
-_*
+
 
 # local credential files
 *.dodsrc
