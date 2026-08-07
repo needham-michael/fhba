@@ -3,10 +3,8 @@
 from functools import lru_cache
 import importlib
 import inspect
-import json
 import logging
 import os
-import tempfile
 from unicodedata import category
 import warnings
 import yaml
@@ -1464,27 +1462,18 @@ class Registry:
     
     def save_json(self,json_file=importlib.resources.files('fhba') / 'app' / 'state' / 'registry.json'):
         """Save the registry to a JSON file."""
+        from fhba.registry import save_json_registry
         data = self.to_dict()
-        
-        json_file.parent.mkdir(parents=True,exist_ok=True)
+        save_json_registry(data=data,json_file=json_file)
 
-        with tempfile.NamedTemporaryFile('w', dir=json_file.parent, delete=False, suffix='PENDING_.json', encoding='utf-8') as tmpfile:
-            with open(tmpfile.name, 'w', encoding='utf-8') as f:
-                json.dump(data, f, indent=2)
-        os.replace(tmpfile.name, json_file)
-
-    def load_json(self,json_file=importlib.resources.files('fhba') / 'app' / 'state' / 'registry.json'):
+    def load_json(self,json_file = None):
         """Load the registry from a JSON file."""
-        print(f"Loading registry from JSON file: {json_file}")
-        try:
-            with open(json_file, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                self.from_dict(data)
-        except FileNotFoundError:
-            print(f"JSON file {json_file} not found. Starting with an empty registry.")
-        except json.JSONDecodeError as e:
-            msg = f"Error decoding JSON from file {json_file}. Please ensure that the file contains valid JSON."
-            raise json.JSONDecodeError(msg, e.doc, e.pos) from e
+        from fhba.registry import load_json_registry 
+        if json_file is None:
+            json_file=importlib.resources.files('fhba') / 'app' / 'state' / 'registry.json'
+
+        data = load_json_registry(json_file)
+        self.from_dict(data)
         return self
         
     def __str__(self):
