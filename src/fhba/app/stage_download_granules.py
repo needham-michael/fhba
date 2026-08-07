@@ -26,6 +26,8 @@ class StageDownloadGranules(param.Parameterized):
         df = self.gm.to_df().reset_index()
         df = df.rename(columns={'index':'date'})
         df = df[['date','user_categorization','download_status']]
+        df = df[df['user_categorization'] != 'Uncategorized']
+        df = df.sort_values(by='date')
 
         table = pn.widgets.Tabulator(df, height=600, show_index=False)
 
@@ -64,8 +66,8 @@ class StageDownloadGranules(param.Parameterized):
         download_range_selector = pn.widgets.DateRangePicker(
             name='Download Range',
             enabled_dates=list(pd.date_range(
-                start=f"{self.year}-02-15", 
-                end=f"{self.year}-05-15",
+                start=f"{self.year}-01-01", 
+                end=f"{self.year}-12-31",
                 freq='D'
             ).strftime("%Y-%m-%d")),
         )

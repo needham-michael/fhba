@@ -50,6 +50,9 @@ class StageSetup(param.Parameterized):
 
         gm = registry[str(self.year)][satellite]
 
+        #  Apply stopgap measure to relax date range to entire year
+        gm._relax_date_range()
+
         return satellite, registry, gm
         
     @param.depends('year','satellite_full')
@@ -133,13 +136,31 @@ def build_app():
             ("README",pn.pane.Markdown(readme_md, width=800)),
             ("1. Download Granules",pipeline_download),
             ("2. Classify Pixels",pipeline_classify),
-            ("3. Aggregate YTD Burn Masks",pipeline_aggregate),
+            ("3. Aggregate YTD Burn Masks",pn.Column(
+                get_agg_pipeline_disclaimer(),
+                pipeline_aggregate)),
             tabs_location='above',
     )
     )
         
     return app
 
+
+def get_agg_pipeline_disclaimer():
+
+    import textwrap
+
+    disclaimer_text = textwrap.dedent(
+    """
+    # *DISCLAIMER*
+    This section allowing the user to aggregate all YTD burnmasks is currently under active development. Bugs will exist, use with caution.
+    """
+    )
+
+    return pn.pane.Alert(disclaimer_text,alert_type='warning')
+
 if __name__.startswith("bokeh"):
     app = build_app()
     app.servable()
+
+
