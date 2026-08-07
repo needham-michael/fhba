@@ -25,6 +25,7 @@ class StageAnalyze(param.Parameterized):
         gm_df = self.gm.to_df().reset_index()
         gm_df = gm_df.rename(columns={'index':'date'})
         gm_df = gm_df[gm_df['download_status'] == True]
+        gm_df = gm_df.sort_values(by='date')
 
         table = pn.pane.DataFrame(
             gm_df[['date','user_categorization','analysis_status']], index=False, sizing_mode='stretch_both'
@@ -150,8 +151,9 @@ class StageAnalyze(param.Parameterized):
                     date=date,in_app=True,include_counties=True)
                 
             except Exception as e:
-                pn.state.notifications.error(
-                    f"Error loading image for date {date}: {str(e)}",duration=6000)
+                msg = f"Error loading image for date {date}: {str(e)}"
+                print(msg)
+                pn.state.notifications.error(msg,duration=6000)
                 loading.value = False
                 loading.name='Error Loading Image.'
                 return

@@ -21,8 +21,9 @@ class StageDownloadPreviews(param.Parameterized):
 
         download_image_button = pn.widgets.Button(name="Download Preview Images", button_type="primary")
         date_range_slider = pn.widgets.DateRangeSlider(
-            start=pd.to_datetime(self.gm.start_date), 
-            end=pd.to_datetime(self.gm.end_date), 
+            value= (pd.to_datetime(self.gm.start_date),pd.to_datetime(self.gm.end_date)),
+            start=pd.to_datetime(f"{self.year}-01-01"), 
+            end=pd.to_datetime(f"{self.year}-12-31"), 
             name="Date Range",
             format='%Y-%m-%d'
         )

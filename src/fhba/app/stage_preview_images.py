@@ -24,7 +24,7 @@ class StagePreviewImages(param.Parameterized):
 
         preview_image_player = pn.widgets.DiscretePlayer(
             name="Date", 
-            options=gm_df['date'].tolist(), 
+            options=list(sorted(gm_df['date'].tolist())), 
             width=400,
             visible_buttons=['first', 'previous', 'next', 'last'],
             visible_loop_options=[],

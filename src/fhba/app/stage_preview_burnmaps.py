@@ -1,4 +1,5 @@
 import os
+import re
 
 import pandas as pd
 import panel as pn
@@ -20,40 +21,72 @@ class StagePreviewBurnmaps(param.Parameterized):
         png_dir = os.sep.join([png_dir,str(self.year)])
 
         png_files = glob(png_dir + os.sep + "*.png")
-        png_dates = pd.to_datetime([f"{self.year}-" + x.split("YTD")[-1].split(".png")[0] for x in png_files],format='%Y-%j').strftime("%Y-%m-%d")
-        png_files = {d:f for d,f in zip(png_dates,png_files)}
+
+        # Group each png file based on its start date
+        png_files_by_start_date = {}
+        p = re.compile(r"\d{7}-\d{7}.png")
+        for png_file in png_files:
+            start_date, end_date = p.search(png_file).group().replace(".png","").split("-")
+            if start_date in png_files_by_start_date:
+                png_files_by_start_date[start_date][end_date] = png_file
+            else:
+                png_files_by_start_date[start_date] = {end_date:png_file}
+
+        # png_dates = pd.to_datetime([f"{self.year}-" + x.split("YTD")[-1].split(".png")[0] for x in png_files],format='%Y-%j').strftime("%Y-%m-%d")
+        # png_files = {d:f for d,f in zip(png_dates,png_files)}
+
+        start_date_selector = pn.widgets.Select(
+            options=list(png_files_by_start_date.keys())
+            )
 
         discrete_player  = pn.widgets.DiscretePlayer(
-            name='Date',options=list(png_dates),
+            name='Date',
+            # options=list(png_files_by_start_date.values())[0],
+            options=list(list(png_files_by_start_date.values())[0].keys()),
             visible_buttons=['previous','pause','play','next'],width=250
         )
 
-        print("="*79)
-        print(f"{png_dir = }")
-        print(f"{png_files = }")
-        print(f"{png_dates = }")
-        print("="*79)
+        def update_discrete_player_options(event):
+            discrete_player.options = list(png_files_by_start_date[event.new].keys())
 
-        return png_files, discrete_player
+        start_date_selector.param.watch(update_discrete_player_options, 'value')
+
+        return png_files_by_start_date, start_date_selector, discrete_player
     
     @param.depends('year', 'registry',)
     def view(self):
 
         instr = get_instructions("09_instr_preview_burnmask.md", instr_width=250)
         
-        png_files, discrete_player = self.setup()
+        png_files_by_start_date, start_date_selector, discrete_player = self.setup()
+
+        print(f"{png_files_by_start_date = }")
 
         img_pane = pn.pane.Image(None,width=600)
 
-        def update_image(img_pane, event):
+        # Update options to discrete player based on selection of start date
+        def update_player(event):
+            discrete_player.options = list(png_files_by_start_date[event.new].keys())
 
-            img_pane.object = png_files[event.new]
+        start_date_selector.param.watch(update_player, 'value')
 
-        discrete_player.link(img_pane,callbacks={'value':update_image})
+        def update_image(event):
+            start_date = start_date_selector.value
+            end_date = discrete_player.value
+
+            print(f"{start_date = }")
+            print(f"{end_date = }")
+
+            img_pane.object = png_files_by_start_date[start_date][end_date]
+
+        discrete_player.param.watch(update_image, 'value')
+
+        # discrete_player.link(img_pane,callbacks={'value':update_image})
 
         pane = pn.Row(
             instr,
             pn.Column(
+                start_date_selector,
                 discrete_player,
                 img_pane,
                 margin=(40, 10), sizing_mode='stretch_both',

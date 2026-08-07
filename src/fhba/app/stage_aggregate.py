@@ -43,11 +43,11 @@ class StageAggregate(param.Parameterized):
             visible=False, value=False
         )
 
-        ytd_selector = pn.widgets.DatePicker(
-            name='YTD Cutoff Date',
+        daterange_selector = pn.widgets.DateRangePicker(
+            name='AggregateBurnmask Date Range',
             enabled_dates=list(pd.date_range(
-                start=f"{self.year}-02-15", 
-                end=f"{self.year}-05-15",
+                start=f"{self.year}-01-01", 
+                end=f"{self.year}-12-31",
                 freq='D'
             ).strftime("%Y-%m-%d")),
         )
@@ -61,7 +61,7 @@ class StageAggregate(param.Parameterized):
 
         progress_bar = pn.widgets.Tqdm()
 
-        return generate_button, generate_all_button, download_stats_button, loading,ytd_selector, satellite_checkbox, progress_bar
+        return generate_button, generate_all_button, download_stats_button, loading,daterange_selector, satellite_checkbox, progress_bar
 
     @param.depends('year', 'registry',)
     def view(self):
@@ -71,7 +71,7 @@ class StageAggregate(param.Parameterized):
                     "into a single YTD seasonal map.",
                     alert_type='info',width=250)]
         
-        generate_button, generate_all_button, download_stats_button, loading,ytd_selector, satellite_checkbox, progress_bar = self.get_widgets()
+        generate_button, generate_all_button, download_stats_button, loading,daterange_selector, satellite_checkbox, progress_bar = self.get_widgets()
 
 
         stats_table = pn.pane.DataFrame(pd.DataFrame(), index=False, width=600)
@@ -104,21 +104,21 @@ class StageAggregate(param.Parameterized):
 
             burnmasks = {}
 
-            ytd = pd.to_datetime(ytd_selector.value)
+            start_date, end_date = pd.to_datetime(daterange_selector.value)
+
+            # ytd = pd.to_datetime(daterange_selector.value)
             
-            print("="*79)
-            print(f"1. {ytd = }")
+            # print("="*79)
 
-            if isinstance(ytd,type(pd.NaT)):
-                ytd = None
+            # if isinstance(ytd,type(pd.NaT)):
+                # ytd = None
 
-            print(f"2. {ytd = }")
+            # print(f"2. {ytd = }")
 
             for satellite in satellite_checkbox.value:
                 try:
-                    print(f"{satellite = }")
                     bm = SatelliteBurnmask(satellite=satellite,year=self.year,classification_methods=classification_methods)
-                    bm.merge_burnmasks(verbose=False,method='majority',max_date=ytd)
+                    bm.merge_burnmasks(verbose=False,method='majority',min_date=start_date,max_date=end_date)
                     burnmasks[satellite] = bm
 
                     filename += f"_{product_convention[satellite]}"
@@ -133,13 +133,15 @@ class StageAggregate(param.Parameterized):
                 classification_methods=classification_methods
             )
 
-            if ytd is None:
-                ytd = pd.to_datetime(burnmask.burnmask_dates[-1])
+            # if end_date is None:
+            #     ytd = pd.to_datetime(burnmask.burnmask_dates[-1])
 
-            valid_dates = [x for x in pd.to_datetime(burnmask.burnmask_dates) if x <= ytd]
-            ytd_j = valid_dates[-1].strftime("%j")
+            valid_dates = [x for x in pd.to_datetime(burnmask.burnmask_dates) if x <= end_date]
+            valid_dates = [x for x in valid_dates if x >= start_date]
+            start_date_str = valid_dates[0].strftime("%Y%j")
+            end_date_str = valid_dates[-1].strftime("%Y%j")
             
-            filename += f"_YTD{ytd_j}.tif"
+            filename += f"_{start_date_str}-{end_date_str}.tif"
             filename = os.sep.join([output_dir,filename])
 
             burnmask.join_burnmasks(method='any')
@@ -150,10 +152,10 @@ class StageAggregate(param.Parameterized):
             table = table[['county_name','state_name','burned_area_acres']]
             table = table.rename(columns={'county_name':'County','state_name':'State','burned_area_acres':'Acres Burned'})
             stats_table.object = table
-            stats_table_heading.object = f"### Burned Area by County (through {ytd.strftime("%Y-%m-%d")})"
+            stats_table_heading.object = f"### Burned Area by County ({start_date.strftime("%Y-%m-%d")} through {end_date.strftime("%Y-%m-%d")})"
 
             generate_burnmask_figure(
-                date = ytd.strftime("%Y-%m-%d"),
+                date = end_date.strftime("%Y-%m-%d"),
                 initial_date = valid_dates[0],
                 filename = filename,
                 annotation = filename.split(os.sep)[-1].split(".tif")[0].replace("_","-"),
@@ -168,18 +170,33 @@ class StageAggregate(param.Parameterized):
             # Build a list of all possible dates with calculated burn masks
             valid_dates = []
             for sat in self.registry[self.year].satellites.keys():
-                gm = self.registry[self.year][sat]
+                if sat in satellite_checkbox.value:
+                    gm = self.registry[self.year][sat]
 
-                for method in list(gm.burnmask_by_date):
-                    for date in gm.burnmask_by_date[method]:
-                        valid_dates.append(date)
+                    for method in list(gm.burnmask_by_date):
+
+                        for date in gm.burnmask_by_date[method]:
+                            try:
+                                # Backwards compatible to verify that dates are being
+                                # used as keys
+                                pd.to_datetime(date)
+                                valid_dates.append(date)
+                            except Exception:
+                                pass
 
             # Convert to a set to remove duplicate values then back to a sorted list
             valid_dates =  sorted(list(set(valid_dates)))
 
+            # Ensure that dates are within the bounds of the daterange_selector
+            d1, d2 = pd.to_datetime(daterange_selector.value)
+            valid_dates = [x for x in valid_dates if (pd.to_datetime(x) >= d1) and (pd.to_datetime(x) <= d2)]
+
             for date in progress_bar(valid_dates):
 
-                ytd_selector.value = datetime.date(*[int(x) for x in date.split("-")])
+                daterange_selector.value = (
+                    daterange_selector.value[0],
+                    datetime.date(*[int(x) for x in date.split("-")])
+                    )
 
                 try:
                     generate_burnmask_ytd(event)
@@ -201,7 +218,7 @@ class StageAggregate(param.Parameterized):
                         pn.pane.Markdown("#### Select Satellite(s) for Analysis (Only Analyzed Satellites Shown)"),
                         satellite_checkbox
                     ),
-                    pn.Row(ytd_selector,),
+                    pn.Row(daterange_selector,),
                     pn.Row(
                         # generate_button, # Hide this button since expect user to look at entire season
                         pn.Column(generate_all_button,progress_bar)

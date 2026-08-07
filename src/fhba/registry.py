@@ -99,6 +99,27 @@ class GranuleManager:
             # the method (e.g., SVM / RF / EUCL) and the sub-key is the date. This will
             # allow for tracking the different methods
 
+    def _relax_date_range(self):
+        """stopgap temp function to extend valid date range through entire year
+        
+        Also updates the various dicts in which keys are dates
+        """
+
+        year = pd.to_datetime(self.start_date).year
+        self.start_date = f"{year}-01-01"
+        self.end_date = f"{year}-12-31"
+        new_range = pd.date_range(self.start_date,self.end_date,freq='1D').strftime("%Y-%m-%d").tolist()
+
+        # Update necessary dictionaries
+        self.download_status = {d:False for d in new_range if d not in self.download_status} | self.download_status
+        self.cloud_mask_download_status = {d:False for d in new_range if d not in self.cloud_mask_download_status} | self.cloud_mask_download_status
+        self.qc_status = {d:-1 for d in new_range if d not in self.qc_status} | self.qc_status
+        self.processing_status = {d:False for d in new_range if d not in self.processing_status} | self.processing_status
+        self.user_categorization_by_date = {d:"Uncategorized" for d in new_range if d not in self.user_categorization_by_date} | self.user_categorization_by_date
+        self.analysis_status = {d:"Unanalyzed" for d in new_range if d not in self.analysis_status} | self.analysis_status
+        self.categorization_status = {d:"Uncategorized" for d in new_range if d not in self.categorization_status} | self.categorization_status
+
+
     def classify_pixels(self,date,method='eucl',landcover_mask_file=None,
                         min_area_pixels=5, pre_fire_date=None, **clf_kwargs):
         """Classify pixels as burned/unburned for a given date.

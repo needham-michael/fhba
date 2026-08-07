@@ -28,6 +28,7 @@ class StageClassify(param.Parameterized):
         gm_df = self.gm.to_df().reset_index()
         gm_df = gm_df.rename(columns={'index':'date'})
         gm_df = gm_df[gm_df['analysis_status'] != "Unanalyzed"]
+        gm_df = gm_df.sort_values(by='date')
 
         table = pn.pane.DataFrame(
             gm_df[['date','analysis_status','categorization_status']], index=False, 
@@ -209,6 +210,8 @@ class StageClassify(param.Parameterized):
 
             if not lcmask_exists:
                 if not lcmask_fullres_exists:
+                    print(f"{landcover_mask_file = }")
+                    print(f"{landcover_mask_file_fullres = }")
                     pn.state.notifications.error("Landcover Mask File Not Found",duration=6000)
                     loading.value = False
                     loading.visible = False
@@ -229,6 +232,8 @@ class StageClassify(param.Parameterized):
 
             if not openwater_exists:
                 if not openwater_fullres_exists:
+                    print(f"{openwater_mask_file = }")
+                    print(f"{openwater_mask_file_fullres = }")
                     pn.state.notifications.error("Openwater Mask File Not Found.",duration=6000)
                     loading.value = False
                     loading.visible = False
