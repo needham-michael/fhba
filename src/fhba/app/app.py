@@ -36,7 +36,11 @@ class StageSetup(param.Parameterized):
         # Skip getting the satpy_area_def since no processing occurs in this portion
         # of the application. Also skip authentication with earthaccess for a similar
 
-        registry = Registry(get_satpy_area_def=True,auth_earthaccess=False).load_json()
+        registry = Registry(get_satpy_area_def=True,auth_earthaccess=False)
+        try:
+            registry.load_json()
+        except:
+            print("First time setup; creating registry.json")
 
         satellite = self.satellite_full.split()[0]
 
