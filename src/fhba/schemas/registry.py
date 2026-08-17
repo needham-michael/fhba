@@ -1,7 +1,7 @@
 import datetime
 import json
 from pathlib import Path
-from typing import List, Literal, Optional, Tuple
+from typing import List, Literal, Optional, Tuple, Union
 
 from pydantic import BaseModel
 
@@ -63,7 +63,7 @@ class GranuleManager(BaseModel):
     date: datetime.datetime
     satellite: str
     files : FileMetadata = FileMetadata()
-    selected_granule : List[str] | str = None
+    selected_granule : Union[List[str], str, None] = None
     categorization: str = "Uncategorized"
     is_unavailable: bool = False
     is_downloaded: bool = False
