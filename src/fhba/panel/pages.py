@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 
 from importlib import resources
 from pathlib import Path
@@ -14,9 +15,11 @@ from fhba.panel.utils import style, bbox_is_valid, validate_directory
 from fhba.schemas import Registry
 from fhba.schemas.sync import json2cases, json2reg, cases2json
 
+from fhba.panel.instructions import Instructions
 
 from fhba.panel.stages import (
-    StageSelectInstrument, StageDownloadWorldview, StageSortTruecolor, StageDownloadGranules
+    StageSelectInstrument, StageDownloadWorldview, StageSortTruecolor, StageDownloadGranules,
+    StageMosaicGranules, StageProcessGranules
     )
 
 
@@ -72,9 +75,10 @@ class PageSelectCase(param.Parameterized):
         ),**self.card,title="Create New Case")
 
         layout_delcase = pn.Card(pn.Column(
-            pn.Row(self._delcase_selector,self._delcase_button),
+            pn.Row(self._delcase_selector,self._delcase_modal_open),
             self._delcase_checkbox,
-        ),**self.card,title="Delete Case - NOT YET IMPLEMENTED")
+            self._delcase_modal,
+        ),**self.card,title="Delete Case")
 
         self._layout = pn.Tabs(
             ("Select Case",pn.Column(layout_existing_case,layout_newcase,layout_delcase)),
@@ -97,6 +101,8 @@ class PageSelectCase(param.Parameterized):
         # NEW CASE ATTRS
         self._newcase_data_dir = None
         self._newcase_data_dir_valid = False
+        self._newcase_output_dir = None
+        self._newcase_output_dir_valid = False
         self._newcase_bbox = None
         self._newcase_bbox_valid = False
 
@@ -128,11 +134,26 @@ class PageSelectCase(param.Parameterized):
 
         # DELETE CASE WIDGETS
         self._delcase_selector = pn.widgets.Select(options=self._existing_case_selector.options)
+        self._delcase_modal = pn.Modal(name="Delete Case",)
+        self._delcase_modal_header_text = pn.pane.Markdown("# Are you sure you want to delete this case:")
+        self._delcase_modal_case = pn.pane.Markdown("")
+        self._delcase_modal_footer_text = pn.pane.Markdown("# This cannot be undone.")
+        self._delcase_button_confirm = pn.widgets.Button(label="Delete Case",color='danger',on_click=self._click_del_case)
+        self._delcase_button_cancel = self._delcase_modal.create_button("hide",label='Cancel',color='default')
         self._delcase_checkbox = pn.widgets.Checkbox(label='Enable Case Deletion')
-        self._delcase_button = pn.widgets.Button(label="Delete Case",disabled=True,color='danger')
+        self._delcase_modal_open = self._delcase_modal.create_button("show",label="Delete Case",disabled=True,color='danger')
 
-        # Only allow the delete button to be clicked if the checkbox is checked
-        self._delcase_button.param.update(disabled = pn.bind(lambda val: not val, self._delcase_checkbox))
+        # Populate the modal
+        self._delcase_modal.append(self._delcase_modal_header_text)
+        self._delcase_modal.append(self._delcase_modal_case)
+        self._delcase_modal.append(self._delcase_modal_footer_text)
+        self._delcase_modal.append(pn.Row(self._delcase_button_cancel,self._delcase_button_confirm))
+
+        # Ensure the modal displays the currently active delcase_selector value
+        self._delcase_modal_case.param.update(object = pn.bind(lambda val: f"# `{val}`", self._delcase_selector))
+
+        # Only allow the delete case modal to open if the checkbox is checked
+        self._delcase_modal_open.param.update(disabled = pn.bind(lambda val: not val, self._delcase_checkbox))
 
     def _advance(self,event,dest):
         self.selected_casename = self._existing_case_selector.value
@@ -163,16 +184,51 @@ class PageSelectCase(param.Parameterized):
 
         os.makedirs(name=_path_data)
         os.makedirs(name=_path_output)
+        self._create_case_registry(_casename,_path_data,_path_output)
+        self._update_fhba_cases_json(_casename,_path_data)
         pn.state.notifications.success(f"New Case Created: {_casename}")
         self._existing_case_load_button_disabled = False
-        self._existing_case_load_button.disabled = False
-        self._existing_case_selector.options += [_casename]
+
+        print(f"Updating Case Selector to include : {_casename}")
         self._existing_case_selector.options = [x for x in self._existing_case_selector.options if x is not None]
+        self._existing_case_selector.value = _casename
         self._delcase_selector.options = self._existing_case_selector.options
-        self._update_fhba_cases_json(_casename,_path_data)
-        self._create_case_registry(_casename,_path_data,_path_output)
+        self._delcase_selector.value = _casename
+        print(f"{self._existing_case_selector.options = }")
+        print(f"{self._delcase_selector.options = }")
+
+        # WORKAROUND FOR SELECTORS NOT UPDATING AUTOMATICALLY; RELOAD PAGE
+        pn.state.location.reload = True
         
-        # Create the empty registry
+    def _click_del_case(self,event):
+        _case_to_delete = self._delcase_selector.value
+        pn.state.notifications.warning(f"Deleting case: {_case_to_delete}")
+
+        # 1. Delete case directories
+        self._json_registry_filename = self._fhba_cases.cases[_case_to_delete] / f"fhba_{_case_to_delete}.json"
+        self._json2reg()
+
+        _delcase_caseroot = self._reg.caseroot
+        _delcase_outputroot = self._reg.output_root
+
+        print(f"{_delcase_caseroot =}")
+        print(f"{_delcase_outputroot =}")
+
+        for _p in [_delcase_caseroot,_delcase_outputroot]:
+            if _p.exists() and _p.is_dir():
+                shutil.rmtree(_p)
+
+        # 2. Update Case Registry
+        del self._fhba_cases.cases[_case_to_delete]
+        self._cases2json()
+        
+        self._existing_case_selector.options = [x for x in self._existing_case_selector.options if x != _case_to_delete]
+        self._delcase_selector.options = [x for x in self._existing_case_selector.options if x != _case_to_delete]
+
+        self._delcase_modal.hide()
+
+        # WORKAROUND FOR SELECTORS NOT UPDATING AUTOMATICALLY; RELOAD PAGE
+        pn.state.location.reload = True
 
     def _update_fhba_cases_json(self,casename,path):
         # Update FHBACases object with the new casename:path keyval pair
@@ -236,6 +292,14 @@ class PageSelectCase(param.Parameterized):
     def _json2cases(self):
         self._fhba_cases_json, self._fhba_cases = json2cases()
 
+    def _cases2json(self):
+        cases2json(self._fhba_cases_json,self._fhba_cases)
+
+    def _json2reg(self,return_obj=True):
+        self._reg = json2reg(self._json_registry_filename)
+        if return_obj:
+            return self._reg
+
     def _get_style(self):
         style_dict = style()
         for key in style_dict:
@@ -267,7 +331,9 @@ class PageAnalysisPipeline(param.Parameterized):
         self._layout_tabs = pn.Tabs(
             ("Case Info",pn.Column(
                 self._refresh_json,self._json_viewer,)),
+            ("Instructions",Instructions),
             ("1. Download Granules", self._pipeline_download_layout),
+            ("2. Process Granules", self._pipeline_process_layout),
             dynamic=True,
             active=1,
         )
@@ -278,16 +344,6 @@ class PageAnalysisPipeline(param.Parameterized):
             self._layout_tabs
             ),header=pn.pane.Markdown(f"# Case: {self.selected_casename}"),**self.card)
 
-    # def append_to_tabs(self,new_tab):
-    #     """
-    #     Assumes the following layout structure:
-    #     [Column
-    #         [0] Markdown(str)
-    #         [1] Tabs(active=N, dynamic=True)
-    #     """
-
-        # self._layout.objects[0].objects[1].append(new_tab)
-
     def _setup(self):
         # Navigation Buttons
         self.back    = pn.widgets.Button(name="Back to Case Selection",**self.button_warning)
@@ -295,8 +351,8 @@ class PageAnalysisPipeline(param.Parameterized):
         self.back.on_click(lambda e: self._advance("Start"))
 
         self._json2cases()
-        json_registry_filename = self._fhba_cases.cases[self.selected_casename] / f"fhba_{self.selected_casename}.json"
-        self._json2reg(json_registry_filename)
+        self._json_registry_filename = self._fhba_cases.cases[self.selected_casename] / f"fhba_{self.selected_casename}.json"
+        self._json2reg()
 
         self._json_viewer = pn.widgets.JSONEditor(
             value=self._reg.model_dump(mode='json'),selection=[],mode='view',
@@ -304,22 +360,24 @@ class PageAnalysisPipeline(param.Parameterized):
 
         # Analysis Pipelines
         self._build_pipeline_download()
+        self._build_pipeline_process()
 
     def _refresh_case_info(self,event):
-        self._json2reg(self._reg.json_filename)
+        self._json2reg()
         self._json_viewer.value = self._reg.model_dump(mode='json')
+        pn.state.notifications.success("Case Info Updated.")
         
 
     def _build_pipeline_download(self):
         _pipe = pn.pipeline.Pipeline(
             stages=[
-                ('Select',StageSelectInstrument(registry=self._reg)),
+                ('Select',StageSelectInstrument(registry=self._json2reg(return_obj=True))),
                 ('DownloadWorldview',StageDownloadWorldview),
                 ('SortTrueColor',StageSortTruecolor),
                 ('DownloadGranules',StageDownloadGranules)
             ],
             debug=True
-        )
+        )       
 
         # self._pipeline_download_layout = pn.Column(
         #     pn.pane.Markdown("# Step 1: Download Satellite Granules"),
@@ -330,6 +388,30 @@ class PageAnalysisPipeline(param.Parameterized):
         self._pipeline_download_layout = _pipe
 
         self._pipeline_download = _pipe
+
+    def _build_pipeline_process(self):
+        class Stage(param.Parameterized):
+            def panel(self):
+                return pn.pane.Markdown("SELECT")
+
+        _pipe = pn.pipeline.Pipeline(
+            stages=[
+                ('Select',StageSelectInstrument(registry=self._json2reg(return_obj=True))),
+                ('Mosaic',StageMosaicGranules),
+                ('Process',StageProcessGranules),
+            ],
+            debug=True
+        )       
+
+        # self._pipeline_download_layout = pn.Column(
+        #     pn.pane.Markdown("# Step 1: Download Satellite Granules"),
+        #     _pipe.buttons,
+        #     _pipe.stage
+        # )
+
+        self._pipeline_process_layout = _pipe
+
+        self._pipeline_process = _pipe
 
 
     def _advance(self,dest):
@@ -344,8 +426,10 @@ class PageAnalysisPipeline(param.Parameterized):
     def _json2cases(self):
         self._fhba_cases_json, self._fhba_cases = json2cases()
 
-    def _json2reg(self,json_registry_filename):
-        self._reg = json2reg(json_registry_filename)
+    def _json2reg(self,return_obj=True):
+        self._reg = json2reg(self._json_registry_filename)
+        if return_obj:
+            return self._reg
 
     def panel(self):
         self.ready = False

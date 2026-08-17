@@ -63,6 +63,7 @@ class GranuleManager(BaseModel):
     date: datetime.datetime
     satellite: str
     files : FileMetadata = FileMetadata()
+    selected_granule : List[str] | str = None
     categorization: str = "Uncategorized"
     is_unavailable: bool = False
     is_downloaded: bool = False
@@ -77,6 +78,7 @@ class Registry(BaseModel):
     bounding_box: Tuple[float,float,float,float]
     county_shp: Path
     caseroot: Path
+    output_root: Path
     dataroot: Path
     path_lmask: Path
     path_burnmask: Path
@@ -84,7 +86,6 @@ class Registry(BaseModel):
     path_raw: Path
     path_processed: Path
     path_usrpt: Path
-    path_out: Path
     path_burnmask_final: Path
     json_filename: Path
 

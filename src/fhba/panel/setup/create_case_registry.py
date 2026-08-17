@@ -8,23 +8,22 @@ def create_case_registry(casename,path_data,path_output,bbox):
 
     caseroot = path_data
     dataroot = caseroot / "data"
-    path_out = path_output / "output"
 
     fhba_dirs = dict(
         caseroot = path_data,
         dataroot = dataroot,
         path_lmask = dataroot / "landmask",
-        path_burnmask = dataroot / "burnmask",
         path_wldv = dataroot / "worldview",
         path_raw = dataroot / "raw",
         path_processed = dataroot / "processed",
         path_usrpt = dataroot / "userpts",
-        path_out = path_out,
-        path_burnmask_final = path_out / "burnmask_final",
+        output_root = path_output,
+        path_burnmask = path_output / "burnmask",
+        path_burnmask_final = path_output / "burnmask_final",
     )
 
     for k in fhba_dirs:
-        if k != "caseroot":
+        if k != "caseroot" and k != "output_root":
             fhba_dirs[k].mkdir()
 
     county_shp = resources.files("fhba._static") / "FH_Counties_Updated.shp"
