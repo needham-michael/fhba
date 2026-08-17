@@ -64,6 +64,7 @@ class GranuleManager(BaseModel):
     satellite: str
     files : FileMetadata = FileMetadata()
     selected_granule : Union[List[str], str, None] = None
+    blend_method : str | None = "Stack"
     categorization: str = "Uncategorized"
     is_unavailable: bool = False
     is_downloaded: bool = False
