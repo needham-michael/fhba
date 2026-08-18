@@ -19,7 +19,7 @@ from fhba.panel.instructions import Instructions
 
 from fhba.panel.stages import (
     StageSelectInstrument, StageDownloadWorldview, StageSortTruecolor, StageDownloadGranules,
-    StageMosaicGranules, StageProcessGranules
+    StageSelectBlendMethod, StageProcessGranules
     )
 
 
@@ -50,7 +50,7 @@ class PageSelectCase(param.Parameterized):
         layout_newcase = pn.Card(pn.Row(
             self.gv_map,
             pn.Column(
-                self._newcase_casename,
+                pn.Row(self._newcase_casename,self._newcase_resolution),
                 pn.layout.Divider(),
                 pn.Row(
                     self._newcase_bbox_input,
@@ -108,7 +108,9 @@ class PageSelectCase(param.Parameterized):
 
         # NEW CASE WIDGETS
         self._newcase_casename = pn.widgets.TextInput(
-            label="New Casename",value="new_casename")
+            label="New Casename",placeholder="new_casename")
+        self._newcase_resolution = pn.widgets.ArrayInput(
+            label="New Case Spatial Resolution Meters [dx, dy]",value=np.array([500,500]))
         self._newcase_bbox_input = pn.widgets.ArrayInput(
             label="Bounding Box [minlon, minlat, maxlon, maxlat]",value=self._bbox_default)
         self._newcase_button_show_bbox = pn.widgets.Button(
@@ -162,6 +164,12 @@ class PageSelectCase(param.Parameterized):
 
     def _click_new_case(self,event):
         advance = True
+
+        self._verify_resolution()
+
+        if not self._newcase_resolution_valid:
+            msg = "Ensure a valid spatial resolution has been entered."
+            advance = False
         if not self._newcase_data_dir_valid:
             msg = "Ensure a valid data directory has been entered with `Validate Data Directory`"
             advance = False
@@ -242,7 +250,9 @@ class PageSelectCase(param.Parameterized):
         from fhba.panel.setup.create_case_registry import create_case_registry
         self._case_registry, self._case_registry_filename = create_case_registry(
             casename=casename,path_data=path_data,
-            path_output=path_output,bbox=self._newcase_bbox_input.value)
+            path_output=path_output,bbox=self._newcase_bbox_input.value,
+            dx=self._dx,dy=self._dy
+            )
         
     def _show_bbox(self,event):
         self._newcase_bbox_valid, msg = bbox_is_valid(self._newcase_bbox_input.value)
@@ -285,6 +295,22 @@ class PageSelectCase(param.Parameterized):
             self._newcase_data_dir_full = data_dir
             self._newcase_data_dir_printout.object = f"Project data will be stored in directory:\n__{self._newcase_data_dir_full}__"
             pn.state.notifications.success("Data Directory is Valid.")
+
+    def _verify_resolution(self,event=None):
+        self._newcase_resolution_valid = False
+
+        resolution = self._newcase_resolution.value
+        print(f"{resolution = }")
+        print(f"{len(resolution) = }")
+        msg = "Resolution must be one or two integers or floats representing final grid spacing in the x and optionally y directions."
+        if (len(resolution) > 0) and (len(resolution) <= 2):
+            resolution = [float(x) for x in resolution]
+            self._newcase_resolution_valid = True
+            self._dx = resolution[0]
+            self._dy = resolution[-1] # may be same as dx = resolution[0]
+
+        if not self._newcase_resolution_valid:
+            pn.state.notifications.error(msg)
 
     def _click_load_case(self,event):
         self._advance(event=event,dest="AnalysisPipeline")
@@ -396,8 +422,8 @@ class PageAnalysisPipeline(param.Parameterized):
 
         _pipe = pn.pipeline.Pipeline(
             stages=[
-                ('Select',StageSelectInstrument(registry=self._json2reg(return_obj=True))),
-                ('Mosaic',StageMosaicGranules),
+                ('Select',StageSelectInstrument(registry=self._json2reg(return_obj=True),show_band_selector=True)),
+                ('Mosaic',StageSelectBlendMethod),
                 ('Process',StageProcessGranules),
             ],
             debug=True

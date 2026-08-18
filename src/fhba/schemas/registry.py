@@ -31,11 +31,14 @@ class AreaDefSpec(BaseModel):
 class SatelliteSpec(BaseModel):
     refl_short_name_list : List[str]
     cmsk_short_name_list : List[str]
+    band_list_all : List[str]
+    band_list_default : List[str]
     instrument: str  # e.g., MODIS or VIIRS
     platform: str    # e.g., AQUA or Suomi-NPP
     start_date: str | None = None
     end_date: str | None = None
     access_method: str = 'earthaccess' # download via (e.g., earthaccess)
+
 
 class FileMetadata(BaseModel):
     raw_refl_granule : Optional[List[Path]] = None
@@ -72,6 +75,9 @@ class GranuleManager(BaseModel):
     is_processed: bool = False
     is_user_categorized: bool = False
     is_classified: bool = False
+
+    def __str__(self):
+        return f"[{self.satellite} GranuleManager {self.date.strftime('%Y-%m-%d')}]"
     
 class Registry(BaseModel):
     """Case registry to maintain complete collection of metadata for case"""
@@ -92,8 +98,14 @@ class Registry(BaseModel):
 
     # Granule metadata stored in nested dict accessed by <year>, <satellite>, and <date>
     granules: dict[str, dict[str, dict[str, GranuleManager]] ] = {}
+
+    # Instrument Specifications
     sat_info: dict[str, SatelliteSpec] = None
+    sat_band_defaults: dict[str, List] = {}
+
+    # Resampling Specifications
     area_def_spec: Optional[AreaDefSpec] = None
+    resolution: Tuple[float, float]
 
     def define_satpy_area_def(self, width: int = 500, height: int = 1000):
         import warnings

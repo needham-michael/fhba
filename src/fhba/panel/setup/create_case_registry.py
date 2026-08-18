@@ -3,7 +3,7 @@ from importlib import resources
 from fhba.schemas import Registry
 from fhba.schemas.sat_config import get_sat_info
 
-def create_case_registry(casename,path_data,path_output,bbox):
+def create_case_registry(casename,path_data,path_output,bbox,dx,dy):
     case_registry_filename = path_data / f"fhba_{casename}.json"
 
     caseroot = path_data
@@ -34,7 +34,9 @@ def create_case_registry(casename,path_data,path_output,bbox):
         county_shp = county_shp,
         **fhba_dirs,
         json_filename=case_registry_filename,
-        sat_info=get_sat_info()
+        sat_info=get_sat_info(),
+        sat_band_defaults={},
+        resolution=(dx,dy)
     )
 
     with open(case_registry_filename,"w",encoding='utf-8') as f:

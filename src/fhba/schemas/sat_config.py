@@ -3,10 +3,17 @@ from typing import Dict
 
 from fhba.schemas.registry import SatelliteSpec
 
+VIIRS_MOD_BANDS = [f"M{b:0>2}" for b in range(1,17)]
+VIIRS_IMG_BANDS = [f"I{b:0>2}" for b in range(1,6)]
+VIIRS_BANDS_ALL = VIIRS_IMG_BANDS + VIIRS_MOD_BANDS
+VIIRS_BANDS_DEFAULT = ["I01","I02","I03","M03","M04","M05","M07","M08","M11"]
+
 SATCONFIG: Dict[str,Dict] = {
     "Suomi-NPP VIIRS" : {
         "refl_short_name_list": ["VNP02IMG", "VNP03IMG", "VNP02MOD", "VNP03MOD"],
         "cmsk_short_name_list": ["CLDMSK_L2_VIIRS_SNPP"],
+        "band_list_all" : VIIRS_BANDS_ALL,
+        "band_list_default" : VIIRS_BANDS_DEFAULT,
         "instrument": "viirs",
         "platform":'suomi-npp',
         "start_date":"2012-01-19",
@@ -16,6 +23,8 @@ SATCONFIG: Dict[str,Dict] = {
     "NOAA-20 VIIRS" : {
         "refl_short_name_list": ["VJ102IMG", "VJ103IMG", "VJ102MOD", "VJ103MOD"],
         "cmsk_short_name_list": ["CLDMSK_L2_VIIRS_NOAA20"],
+        "band_list_all" : VIIRS_BANDS_ALL,
+        "band_list_default" : VIIRS_BANDS_DEFAULT,
         "instrument": "viirs",
         "platform":'noaa-20',
         "start_date":"2018-01-05",
@@ -25,6 +34,8 @@ SATCONFIG: Dict[str,Dict] = {
     "NOAA-21 VIIRS" : {
         "refl_short_name_list": ["VJ202IMG", "VJ203IMG", "VJ202MOD", "VJ203MOD"],
         "cmsk_short_name_list": ["CLDMSK_L2_VIIRS_NOAA21"],
+        "band_list_all" : VIIRS_BANDS_ALL,
+        "band_list_default" : VIIRS_BANDS_DEFAULT,
         "instrument": "viirs",
         "platform":'noaa-21',
         "start_date":"2023-02-10",

@@ -1,4 +1,8 @@
 from fhba.panel.stages.stage_select_instrument import StageSelectInstrument as StageSelectInstrument
+
 from fhba.panel.stages.pipe_download_granules.stage_download_worldview import StageDownloadWorldview as StageDownloadWorldview
 from fhba.panel.stages.pipe_download_granules.stage_sort_truecolor import StageSortTruecolor as StageSortTruecolor
 from fhba.panel.stages.pipe_download_granules.stage_download_granules import StageDownloadGranules as StageDownloadGranules
+
+from fhba.panel.stages.pipe_process_granules.stage_select_blend_method import StageSelectBlendMethod as StageSelectBlendMethod
+from fhba.panel.stages.pipe_process_granules.stage_process_granules import StageProcessGranules as StageProcessGranules
