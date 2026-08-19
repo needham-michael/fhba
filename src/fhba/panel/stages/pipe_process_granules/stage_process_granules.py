@@ -119,8 +119,13 @@ class StageProcessGranules(param.Parameterized):
         target_area_def = create_target_area_def(
             casename=self.registry.casename,
             bounding_box=self.registry.bounding_box,
-            resolution=self.registry.resolution
+            resolution=self.registry.resolution,
+            epsg=self.registry.epsg,
+            epsg_units=self.registry.epsg_units
         )
+
+        self.registry.epsg_extent = target_area_def.area_extent
+        self.registry.to_json()
 
         for date in self._progress_bar(_df['date'], desc="Processing Granules"):
             if not (min_date <= pd.to_datetime(date) <= max_date):

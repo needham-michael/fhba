@@ -105,20 +105,23 @@ class Registry(BaseModel):
     sat_info: dict[str, SatelliteSpec] = None
     sat_band_defaults: dict[str, List] = {}
 
-    # Resampling Specifications
+    # Resampling Specifications (default to EPSG:3857 Web Mercator)
     area_def_spec: Optional[AreaDefSpec] = None
     resolution: Tuple[float, float]
+    epsg: int = 3857
+    epsg_units: str = "meters"
+    epsg_extent: Tuple[float,float,float,float] | None = None
 
-    def define_satpy_area_def(self, width: int = 500, height: int = 1000):
-        import warnings
-        warnings.warn("Using hardcoded parameters for registry.satpy_area_def")
-        warnings.warn("Projection set to Web Mercator (EPSG:3857) for registry.satpy_area_def.")
-        if self.spatial is None:
-            self.spatial = (self.app_config.min_lon, self.app_config.min_lat, self.app_config.max_lon, self.app_config.max_lat)
-        self.area_def_spec = AreaDefSpec(
-            projection=3857, width=width, height=height, area_extent=self.spatial, units="degrees"
-        )
-        self._satpy_area_def = self.area_def_spec.to_pyresample()
+    # def define_satpy_area_def(self, width: int = 500, height: int = 1000):
+    #     import warnings
+    #     warnings.warn("Using hardcoded parameters for registry.satpy_area_def")
+    #     warnings.warn("Projection set to Web Mercator (EPSG:3857) for registry.satpy_area_def.")
+    #     if self.spatial is None:
+    #         self.spatial = (self.app_config.min_lon, self.app_config.min_lat, self.app_config.max_lon, self.app_config.max_lat)
+    #     self.area_def_spec = AreaDefSpec(
+    #         projection=3857, width=width, height=height, area_extent=self.spatial, units="degrees"
+    #     )
+    #     self._satpy_area_def = self.area_def_spec.to_pyresample()
 
     def to_json(self) -> None:
         with open(self.json_filename,"w",encoding='utf-8') as f:
