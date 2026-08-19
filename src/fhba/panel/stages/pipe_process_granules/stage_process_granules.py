@@ -27,10 +27,16 @@ class StageProcessGranules(param.Parameterized):
         self._get_style()
         self._setup()
 
+        selected_band_string = "## Selected Bands:"
+        for b in sorted(self.sat_band_subset):
+            selected_band_string += f"\n* __`{b}`__"
+            if b in self.sat_info.band_list_minimal:
+                selected_band_string += " *Required*"
+
         self._layout = pn.Card(pn.Row(
             pn.Column(
                 pn.pane.Markdown(f"## Blending Method:\n {self.blend_method}"),
-                pn.pane.Markdown("## Selected Bands:\n" + "".join([f"\n * {b}" for b in self.sat_band_subset])),
+                pn.pane.Markdown(selected_band_string),
                 self._table_layout,   
             ),
             self._download_layout
@@ -189,6 +195,7 @@ class StageProcessGranules(param.Parameterized):
 
         granule_manager.files.reproj_granule = reproj_filename
         granule_manager.is_processed = True
+        granule_manager.processed_bands = self.sat_band_subset
         msg = f"Success reprojecting {granule_manager}"
 
         return granule_manager, msg

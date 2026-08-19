@@ -7,6 +7,7 @@ VIIRS_MOD_BANDS = [f"M{b:0>2}" for b in range(1,17)]
 VIIRS_IMG_BANDS = [f"I{b:0>2}" for b in range(1,6)]
 VIIRS_BANDS_ALL = VIIRS_IMG_BANDS + VIIRS_MOD_BANDS
 VIIRS_BANDS_DEFAULT = ["I01","I02","I03","M03","M04","M05","M07","M08","M11"]
+VIIRS_BANDS_MINIMAL = ["I01","I02"]
 
 SATCONFIG: Dict[str,Dict] = {
     "Suomi-NPP VIIRS" : {
@@ -14,6 +15,7 @@ SATCONFIG: Dict[str,Dict] = {
         "cmsk_short_name_list": ["CLDMSK_L2_VIIRS_SNPP"],
         "band_list_all" : VIIRS_BANDS_ALL,
         "band_list_default" : VIIRS_BANDS_DEFAULT,
+        "band_list_minimal" : VIIRS_BANDS_MINIMAL,
         "instrument": "viirs",
         "platform":'suomi-npp',
         "start_date":"2012-01-19",
@@ -25,6 +27,7 @@ SATCONFIG: Dict[str,Dict] = {
         "cmsk_short_name_list": ["CLDMSK_L2_VIIRS_NOAA20"],
         "band_list_all" : VIIRS_BANDS_ALL,
         "band_list_default" : VIIRS_BANDS_DEFAULT,
+        "band_list_minimal" : VIIRS_BANDS_MINIMAL,
         "instrument": "viirs",
         "platform":'noaa-20',
         "start_date":"2018-01-05",
@@ -36,6 +39,7 @@ SATCONFIG: Dict[str,Dict] = {
         "cmsk_short_name_list": ["CLDMSK_L2_VIIRS_NOAA21"],
         "band_list_all" : VIIRS_BANDS_ALL,
         "band_list_default" : VIIRS_BANDS_DEFAULT,
+        "band_list_minimal" : VIIRS_BANDS_MINIMAL,
         "instrument": "viirs",
         "platform":'noaa-21',
         "start_date":"2023-02-10",

@@ -51,11 +51,16 @@ class StageSelectInstrument(param.Parameterized):
         self.valid_min_date, self.valid_max_date = get_valid_dates(year=self.year)
 
     def _build_band_selector_pane(self):
+
+        self._minimal_band_info = pn.Column(
+            pn.pane.Markdown("## Required Minimal Bands:\n" + "".join([f"\n * {b}" for b in self.sat_info.band_list_minimal])),
+        )
+
         self._band_selector = pn.widgets.MultiChoice.from_param(
             self.param.sat_band_subset,
-            options=self.sat_info.band_list_all,
-            value=self.sat_info.band_list_default,
-            label="Select Satellite Bands"
+            options=[x for x in self.sat_info.band_list_all if x not in self.sat_info.band_list_minimal],
+            value=[x for x in self.sat_info.band_list_default if x not in self.sat_info.band_list_minimal],
+            label="Select Additional Bands"
         )
 
         if self.sat_info.instrument in self.registry.sat_band_defaults:
@@ -72,6 +77,7 @@ class StageSelectInstrument(param.Parameterized):
         )
 
         self._band_selector_layout = pn.Column(
+            self._minimal_band_info,
             self._band_selector,
             self._band_selector_save_button,
             self._band_selector_reset_button,
@@ -79,7 +85,7 @@ class StageSelectInstrument(param.Parameterized):
         )
 
     def _save_band_defaults(self,event):
-        self.registry.sat_band_defaults[self.sat_info.instrument] = self._band_selector.value
+        self.registry.sat_band_defaults[self.sat_info.instrument] = self._band_selector.value + self.sat_info.band_list_minimal
         self.registry.to_json()
         pn.state.notifications.info("Satellite Bands Saved as Case Default")
 
@@ -95,5 +101,4 @@ class StageSelectInstrument(param.Parameterized):
             setattr(self,key,style_dict[key])
 
     def panel(self):
-        self.sat_band_subset = self._band_selector.value
         return self._layout

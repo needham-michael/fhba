@@ -33,6 +33,7 @@ class SatelliteSpec(BaseModel):
     cmsk_short_name_list : List[str]
     band_list_all : List[str]
     band_list_default : List[str]
+    band_list_minimal : List[str]
     instrument: str  # e.g., MODIS or VIIRS
     platform: str    # e.g., AQUA or Suomi-NPP
     start_date: str | None = None
@@ -69,6 +70,7 @@ class GranuleManager(BaseModel):
     selected_granule : Union[List[str], str, None] = None
     blend_method : str | None = "Stack"
     categorization: str = "Uncategorized"
+    processed_bands: List[str] | None = None
     is_unavailable: bool = False
     is_downloaded: bool = False
     is_retained: bool = False
