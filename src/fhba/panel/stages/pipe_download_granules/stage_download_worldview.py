@@ -33,7 +33,6 @@ class StageDownloadWorldview(param.Parameterized):
         ),title=f"Satellite: {self.satellite_full}; Year: {self.year}",**self.card)
 
     def _setup(self):
-        self.satellite = self.satellite_full.split()[0]
         self._default_start_date = pd.to_datetime(f"{self.year}-02-15")
         self._default_end_date = pd.to_datetime(f"{self.year}-05-15")
         self._today = pd.to_datetime(datetime.now())

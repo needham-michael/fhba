@@ -14,7 +14,7 @@ class StageSelectBlendMethod(param.Parameterized):
     sat_info = param.Parameter()
     sat_band_subset = param.List()
     granules = param.Parameter()
-    blend_type = param.Selector(objects=['Stack','Weighted By Sensor Zenith Angle','By Granule Name'])
+    blend_method = param.Selector(objects=['Stack','Weighted By Sensor Zenith Angle','By Granule Name'])
 
     def __init__(self,**params):
         super().__init__(**params)
@@ -23,7 +23,7 @@ class StageSelectBlendMethod(param.Parameterized):
 
         self._layout = pn.Card(pn.Column(
             pn.pane.Alert("## Mosaicking Not Yet Implemented - Simple Pass-Thru Stage",alert_type='info'),
-            self.param.blend_type
+            self.param.blend_method
         ),**self.card)
 
     def _setup(self):
