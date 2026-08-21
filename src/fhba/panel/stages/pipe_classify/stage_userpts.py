@@ -140,7 +140,7 @@ class StageClassifyUserpts(param.Parameterized):
             self._unb_point_stream.source = self._unb_points
             self._brn_poly_stream.source = self._brn_polys
             self._unb_poly_stream.source = self._unb_polys
-            self._classification_overlay = (self._brn_points * self._unb_points)# * self._brn_polys * self._unb_polys)
+            self._classification_overlay = (self._brn_points * self._unb_points * self._brn_polys * self._unb_polys)
             
             self._hvpane.object = self._maptiles * self._hvrgb * self._county_overlay * self._classification_overlay
 
