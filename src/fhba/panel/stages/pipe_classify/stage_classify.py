@@ -57,7 +57,6 @@ class StageClassifyUserpts(param.Parameterized):
         )}
 
         self._layout = pn.Card(objects=self._custom_tabs['SelectData'],**self.card)
-        # self._layout = self._custom_tabs['SelectData']
 
     def _setup(self):
 

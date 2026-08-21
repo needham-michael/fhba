@@ -13,6 +13,7 @@ import param
 import shapely
 import xarray as xr
 
+from fhba.classification import classify_pixels
 from fhba.panel.utils import style
 from fhba.viz import shp2gv
 
@@ -33,10 +34,16 @@ class PaneClassifyPixels(param.Parameterized):
         super().__init__(**params)
         self.granules = granules
         self._selected_date = None
+
+        self._setup()
         self._get_style()
         self._build_classify_pixels_pane()
 
         self._layout = self._classify_pixels_pane_layout
+
+    def _setup(self):
+        if self._selected_date is not None:
+            self._selected_granule = self.granules[self._selected_date]
 
     def _assign_date(self,date):
         self._selected_date = date
@@ -52,10 +59,9 @@ class PaneClassifyPixels(param.Parameterized):
         self._loading_icon = pn.widgets.LoadingSpinner(value=False,size=35)
 
         self._load_button = pn.widgets.Button(name="Load Burnmask",**self.button_primary)
-        self._classify_button = pn.widgets.Button(name="Generate Burnmask",**self.button_primary)
+        self._classify_button = pn.widgets.Button(name="Generate Burnmask",on_click=self._classify_pixels,**self.button_primary)
         self._export_button = pn.widgets.Button(name="Save Burnmask",**self.button_success)
         self._export_overwrite_checkbox = pn.widgets.Checkbox(name="Overwrite Burnmask?",value=False)
-
 
         self._classify_pixels_widgets = pn.WidgetBox(
             pn.pane.Markdown("## Burnmask Classification Controls"),
@@ -84,6 +90,67 @@ class PaneClassifyPixels(param.Parameterized):
             self._classify_pixels_widgets,
             self._classify_pixels_pane,
         )
+
+    def _classify_pixels(self,event):
+        print("load_ds()")
+        self._load_ds()
+        print("load_userpts()")
+        self._load_userpts()
+        print("get_cloudmask()")
+        self._get_cloudmask()
+
+        self._burnmask = {}
+        self._burnmask_conf = {}
+
+        for method in self.classification_methods:
+            print(f"Classification {method = }")
+
+            self._burnmask[method], self._burnmask_conf[method] = classify_pixels(
+                ds = self._classify_ds, userpts = self._selected_userpts, method = method, 
+            )
+
+        print("Merging")
+        _bm = xr.Dataset({m:self._burnmask[m] for m in self._burnmask})
+        _bm_conf = xr.Dataset({f"{m}_conf":self._burnmask_conf[m] for m in self._burnmask_conf})
+        print("Saving")
+        xr.merge([_bm,_bm_conf]).to_netcdf("./tmp_bm.nc")
+
+        # FOR MONDAY 8/24
+        # RENAME pydantic rf -> rforest to match classify_pixels expectation
+        # LANDCOVER MASK
+        #    - Resampling (within preprocessing pipe?)
+        #    - Combine with cloud mask for daily mask
+
+    def _get_cloudmask(self):
+        if self.sat_info.instrument == 'viirs':
+            self._cloudmask = self._selected_ds['Clear_Sky_Confidence'] > 0.75
+        else:
+            raise NotImplementedError(f"{self.sat_info.instrument =}")
+
+    def _load_userpts(self):
+        self._selected_userpts = gpd.read_file(
+            self.granules[self._selected_date].files.user_pts
+        )
+
+    def _load_ds(self):
+        self._loading_icon.value = True
+        self._classify_pixels_widgets.disabled = True
+        if self.sat_info.instrument == 'viirs':
+            self._load_ds_viirs(date=self._selected_date)
+        else:
+            raise NotImplementedError(
+                f"Loading instrument: {self.sat_info.instrument} not yet supported")
+
+        self._loading_icon.value = False
+        self._classify_pixels_widgets.disabled = False
+
+    @lru_cache(maxsize=3)
+    def _load_ds_viirs(self,date):
+        granule_manager = self.granules[date]
+        self._selected_ds = xr.open_dataset(granule_manager.files.reproj_granule)
+        self._selected_ds = self._selected_ds.load()
+        self._selected_ds.attrs['crs'] = ccrs.epsg(self.registry.epsg)
+        self._classify_ds = self._selected_ds[[x for x in self._selected_ds.data_vars if x in self.sat_info.band_list_all]]
 
 
     # For some reason need to call self.__panel__() to display this
