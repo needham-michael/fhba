@@ -8,7 +8,7 @@ gv.extension("bokeh")
 from fhba.panel.setup import VersionInfo
 from fhba.panel.pages import PageSelectCase, PageAnalysisPipeline
 
-pn.extension("ace",'tabulator','terminal','modal',"jsoneditor")
+pn.extension("ace",'tabulator','terminal','modal',"jsoneditor",'floatpanel')
 pn.extension(notifications=True)
 
 class AppPages(param.Parameterized):

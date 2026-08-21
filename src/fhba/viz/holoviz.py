@@ -1,0 +1,97 @@
+from pathlib import Path
+from typing import Dict, Tuple
+
+import geoviews as gv
+import numpy as np
+import xarray as xr
+
+from fhba.viz import nonlinear_enhancement
+
+def shp2gv(shpfile: Path, display_opts: Dict | None = None) -> gv.Shape:
+    if display_opts is None:
+        display_opts = {'line_color':'k','line_dash':'dashed','line_width':1}
+    try:
+        return gv.Shape.from_shapefile(shpfile).opts(**display_opts)
+    except: 
+        # Search one level down in case the shapefile is stored in a subfolder
+        # like `/path/to/feature.shp/feature.shp`
+        shpfile = list(shpfile.glob("*.shp"))[0]
+        return gv.Shape.from_shapefile(shpfile).opts(**display_opts)
+
+def nir_red_sqrt(
+    ds: xr.Dataset,
+    nir_band : str,
+    red_band : str,
+    **kwargs
+) -> gv.element.geo.RGB:
+
+    red = nonlinear_enhancement(255 * ds[red_band].values / 100) / 255
+    nir = nonlinear_enhancement(255 * ds[nir_band].values / 100) / 255
+    sqrt = np.sqrt(red * nir)
+
+    return ds2rgb(ds,band_list=[nir,red,sqrt])
+
+def nir_red_red(
+    ds: xr.Dataset,
+    nir_band : str,
+    red_band : str,
+    **kwargs
+) -> gv.element.geo.RGB:
+
+    red = nonlinear_enhancement(255 * ds[red_band].values / 100) / 255
+    nir = nonlinear_enhancement(255 * ds[nir_band].values / 100) / 255
+
+    return ds2rgb(ds,band_list=[nir,red,red])
+
+def nir_red_mwir(
+    ds: xr.Dataset,
+    nir_band : str,
+    red_band : str,
+    mwir_band : str,
+    **kwargs
+) -> gv.element.geo.RGB:
+
+    red = nonlinear_enhancement(255 * ds[red_band].values / 100) / 255
+    nir = nonlinear_enhancement(255 * ds[nir_band].values / 100) / 255
+    mwir = nonlinear_enhancement(255 * ds[mwir_band].values / 100) / 255
+
+    return ds2rgb(ds,band_list=[mwir,red,nir])
+    
+def ds2rgb(
+    ds: xr.Dataset,
+    band_list: Tuple[np.array, np.array, np.array]
+) -> gv.element.geo.RGB:
+
+    bands = xr.concat(
+        [xr.DataArray(b,dims=ds.dims,coords=ds.coords) for b in band_list],
+        dim="band"
+    ).transpose(...,"band")
+    
+    return gv.RGB(data=(ds.x,ds.y,bands.isel(band=0),bands.isel(band=1),bands.isel(band=2)),crs=ds.crs)
+
+import holoviews as hv
+
+def initialize_userpoints(color,marker='x',point_locations=None,label=None):
+
+    if point_locations is None:
+        active_tools = ['point_draw']
+        point_locations = ([], [],)
+
+        points = hv.Points(point_locations,label=label).opts(color=color,marker=marker,size=20,)
+        point_stream = hv.streams.PointDraw(data=points.columns(), source=points)
+
+        userpoints = points.opts(active_tools=active_tools)
+
+        return userpoints, point_stream
+
+    else:
+        points = hv.Points(point_locations,label=label).opts(color=color,marker=marker,size=20,)
+
+        return points
+
+def initialize_userpolys(color='red',alpha=0.5):
+
+    polys = hv.Polygons(data=None,label='label').opts(color=color,alpha=alpha,active_tools=['poly_draw'])
+    poly_stream = hv.streams.PolyDraw(source=polys)
+
+    return polys, poly_stream

@@ -76,7 +76,7 @@ class StageProcessGranules(param.Parameterized):
             start=self.valid_min_date, end=self.valid_max_date,freq='D').strftime("%Y-%m-%d")),)
         self._str_out = pn.pane.Str(None, width=400)
         self._progress_bar = pn.widgets.Tqdm()
-        self._terminal = pn.widgets.Terminal(options={"cursorBlink": True})
+        self._terminal = pn.widgets.Terminal(options={"cursorBlink": True},width_policy='fit',height=600)
         self._loading_icon = pn.widgets.LoadingSpinner(value=False,size=35)
         self._overwrite_checkbox = pn.widgets.Checkbox(label='Overwrite',value=False)
 
@@ -94,6 +94,7 @@ class StageProcessGranules(param.Parameterized):
 
     def _process_granules(self,event):
         self._loading_icon.value = True
+        start_time = time.perf_counter()
 
         # Redirect stdout to the terminal widget to show processing messages
         sys.stdout = self._terminal
@@ -144,6 +145,10 @@ class StageProcessGranules(param.Parameterized):
             # Save updated granule to json
             self.registry.to_json()
 
+        end_time = time.perf_counter()
+        duration = end_time - start_time
+        self._terminal.write(f"Processing Complete in {duration:.6f} seconds.\n")
+        
         self._loading_icon.value = False
                         
     def _process_granules_single_date(self,date,granule_manager,target_area_def):

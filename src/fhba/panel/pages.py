@@ -19,7 +19,7 @@ from fhba.panel.instructions import Instructions
 
 from fhba.panel.stages import (
     StageSelectInstrument, StageDownloadWorldview, StageSortTruecolor, StageDownloadGranules,
-    StageSelectBlendMethod, StageProcessGranules
+    StageSelectBlendMethod, StageProcessGranules, StageClassifyUserpts
     )
 
 
@@ -360,6 +360,7 @@ class PageAnalysisPipeline(param.Parameterized):
             ("Instructions",Instructions),
             ("1. Download Granules", self._pipeline_download_layout),
             ("2. Process Granules", self._pipeline_process_layout),
+            ("3. Classify Granules", self._pipeline_classify_layout),
             dynamic=True,
             active=1,
         )
@@ -387,6 +388,7 @@ class PageAnalysisPipeline(param.Parameterized):
         # Analysis Pipelines
         self._build_pipeline_download()
         self._build_pipeline_process()
+        self._build_pipeline_classify()
 
     def _refresh_case_info(self,event):
         self._json2reg()
@@ -403,23 +405,12 @@ class PageAnalysisPipeline(param.Parameterized):
                 ('DownloadGranules',StageDownloadGranules)
             ],
             debug=True
-        )       
-
-        # self._pipeline_download_layout = pn.Column(
-        #     pn.pane.Markdown("# Step 1: Download Satellite Granules"),
-        #     _pipe.buttons,
-        #     _pipe.stage
-        # )
+        )  
 
         self._pipeline_download_layout = _pipe
-
         self._pipeline_download = _pipe
 
     def _build_pipeline_process(self):
-        class Stage(param.Parameterized):
-            def panel(self):
-                return pn.pane.Markdown("SELECT")
-
         _pipe = pn.pipeline.Pipeline(
             stages=[
                 ('Select',StageSelectInstrument(registry=self._json2reg(return_obj=True),show_band_selector=True)),
@@ -427,18 +418,22 @@ class PageAnalysisPipeline(param.Parameterized):
                 ('Process',StageProcessGranules),
             ],
             debug=True
-        )       
-
-        # self._pipeline_download_layout = pn.Column(
-        #     pn.pane.Markdown("# Step 1: Download Satellite Granules"),
-        #     _pipe.buttons,
-        #     _pipe.stage
-        # )
+        )     
 
         self._pipeline_process_layout = _pipe
-
         self._pipeline_process = _pipe
 
+    def _build_pipeline_classify(self):
+        _pipe = pn.pipeline.Pipeline(
+            stages=[
+                ('Select',StageSelectInstrument(registry=self._json2reg(return_obj=True))),
+                ('Classify Points',StageClassifyUserpts)
+            ],
+            debug=True
+        )     
+
+        self._pipeline_classify_layout = _pipe
+        self._pipeline_classify = _pipe
 
     def _advance(self,dest):
         self.advance_to = dest

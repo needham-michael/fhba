@@ -6,3 +6,5 @@ from fhba.panel.stages.pipe_download_granules.stage_download_granules import Sta
 
 from fhba.panel.stages.pipe_process_granules.stage_select_blend_method import StageSelectBlendMethod as StageSelectBlendMethod
 from fhba.panel.stages.pipe_process_granules.stage_process_granules import StageProcessGranules as StageProcessGranules
+
+from fhba.panel.stages.pipe_classify.stage_userpts import StageClassifyUserpts as StageClassifyUserpts

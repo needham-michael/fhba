@@ -140,7 +140,7 @@ class StageDownloadGranules(param.Parameterized):
             start=self.valid_min_date, end=self.valid_max_date,freq='D').strftime("%Y-%m-%d")),)
         self._str_out = pn.pane.Str(None, width=400)
         self._progress_bar = pn.widgets.Tqdm()
-        self._terminal = pn.widgets.Terminal(options={"cursorBlink": True})
+        self._terminal = pn.widgets.Terminal(options={"cursorBlink": True},width_policy='fit',height=600)
         self._loading_icon = pn.widgets.LoadingSpinner(value=False,size=35)
     
         self._download_layout = pn.Column(
@@ -156,6 +156,7 @@ class StageDownloadGranules(param.Parameterized):
         )
 
     def _download_granules(self,event):
+        start_time = time.perf_counter()
         self._loading_icon.value = True
         if not self._auth_earthaccess_indicator.visible:
             pn.state.notifications.warning("Please authenticate with NASA Earthdata first.")
@@ -197,6 +198,12 @@ class StageDownloadGranules(param.Parameterized):
                 self.registry.to_json()
             else: 
                 print(f"Granules already downloaded for {date}. Skipping.")
+
+        end_time = time.perf_counter()
+        duration = end_time - start_time
+        self._terminal.write("="*79 + "\n")   
+        self._terminal.write(f"Download Complete in {duration:.6f} seconds.\n")
+        self._terminal.write("="*79 + "\n")   
         self._loading_icon.value = False
 
 
