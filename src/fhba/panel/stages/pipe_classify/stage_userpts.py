@@ -33,12 +33,18 @@ class StageClassifyUserpts(param.Parameterized):
         self._get_style()
         self._setup()
 
+        # self._custom_tabs = {
+        #     'SelectData':self._dateselect_layout,
+        #     'MappingPane':self._hvpane_layout
+        # }
+
         self._custom_tabs = {
-            'SelectData':self._dateselect_layout,
+            'SelectData':pn.Card(self._dateselect_layout,**self.card),
             'MappingPane':self._hvpane_layout
         }
 
-        self._layout = pn.Card(objects=self._custom_tabs['SelectData'],**self.card)
+        # self._layout = pn.Card(objects=self._custom_tabs['SelectData'],**self.card)
+        self._layout = self._custom_tabs['SelectData']
 
     def _setup(self):
         self.granules = self.registry.granules[str(self.year)][self.satellite_full]
@@ -55,7 +61,30 @@ class StageClassifyUserpts(param.Parameterized):
 
 
     def _build_selectdata_pane(self):
+        self._build_table_df()
 
+        self._table = pn.widgets.Tabulator(self._classifying_df, show_index=False)
+        
+        self._load_img_button = pn.widgets.Button(name="Load Image",**self.button_primary,on_click=self._load_img)
+        self._loading_icon = pn.widgets.LoadingSpinner(value=False,size=35)
+        self._date_selector = pn.widgets.Select(
+            label="Select Date",options = list(self._classifying_df['date']),value=self._classifying_df['date'].iloc[0])
+
+        self._composite_selector = pn.widgets.Select(
+            label="Select RGB Composite",
+            options=self._rgb_composite_options_all,
+            value=self._rgb_composite_options_all[0]
+        )
+
+        self._dateselect_layout = pn.Column(
+            self._composite_selector,
+            self._date_selector,
+            pn.Row(self._load_img_button,self._loading_icon),
+            pn.pane.Markdown("### Granule Classification Status"),
+            self._table
+        )
+
+    def _build_table_df(self):
         date_col = [d for d in self.granules if self.granules[d].is_processed]
         band_col = [self.granules[d].processed_bands for d in date_col]
         usr_col = [self.granules[d].is_user_categorized for d in date_col]
@@ -68,34 +97,31 @@ class StageClassifyUserpts(param.Parameterized):
             'Classification Algorithm Applied':alg_col,
         })
 
-        self._load_img_button = pn.widgets.Button(name="Load Image",**self.button_primary,on_click=self._load_img)
-        self._loading_icon = pn.widgets.LoadingSpinner(value=False,size=35)
-        self._date_selector = pn.widgets.Select(label="Select Date",options = date_col,value=date_col[0])
-
-        self._composite_selector = pn.widgets.Select(
-            label="Select RGB Composite",
-            options=self._rgb_composite_options_all,
-            value=self._rgb_composite_options_all[0]
-        )
-
-        self._table = pn.widgets.Tabulator(self._classifying_df, show_index=False)
-
-        self._dateselect_layout = pn.Column(
-            self._composite_selector,
-            self._date_selector,
-            pn.Row(self._load_img_button,self._loading_icon),
-            pn.pane.Markdown("### Granule Classification Status"),
-            self._table
-        )
+        
 
     def _build_holoviz_pane(self):
-        self._initialize_usergeom()
+        # self._initialize_usergeom()
 
         self._back_button = pn.widgets.Button(name="Back to Selection",on_click=self._click_back,**self.button_warning)
         self._loadpts_button = pn.widgets.Button(name="Load Points",on_click=self._load_points,**self.button_primary)
         self._clrpts_button = pn.widgets.Button(name="Clear Points",on_click=self._clear_points,**self.button_primary)
-        self._export_button = pn.widgets.Button(name="Export Points",on_click=self._export_points,**self.button_success)
+        self._reset_button = pn.widgets.Button(name="Reset Points",on_click=self._reset_points,**self.button_warning)
+        self._export_button = pn.widgets.Button(name="Save Points",on_click=self._export_points,**self.button_success)
         self._export_overwrite_checkbox = pn.widgets.Checkbox(name="Overwrite Existing Points?",value=False)
+
+        self._user_select_widgets = pn.WidgetBox(
+            pn.pane.Markdown("## User Selection Controls"),
+            pn.Row(
+                self._back_button,
+                self._loadpts_button,
+                self._clrpts_button,
+                self._reset_button,
+                pn.Column(
+                    self._export_button,
+                    self._export_overwrite_checkbox
+                )
+            )
+        )
 
         self._maptiles = gv.tile_sources.CartoLight.opts(
             xlim=(self.registry.epsg_extent[0],self.registry.epsg_extent[2]),
@@ -106,23 +132,18 @@ class StageClassifyUserpts(param.Parameterized):
         self._hvrgb = None
 
         self._hvpane = pn.pane.HoloViews(self._maptiles * self._county_overlay,min_height=800,min_width=800)
+        self._hvpane_title = pn.pane.Markdown("")
         self._hvpane_layout = pn.Column(
-            pn.Row(
-                self._back_button,
-                self._loadpts_button,
-                self._clrpts_button,
-                pn.Column(
-                    self._export_button,
-                    self._export_overwrite_checkbox
-                ),
-                self._loading_icon
-                ),
+            self._hvpane_title,
+            self._user_select_widgets,
             self._hvpane,
-            sizing_mode='stretch_width',height_policy='fit',min_height=800)
+        )
 
     def _load_img(self,event):
-        pn.state.notifications.info(f"Loading {self._composite_selector.value} Composite for date: {self._date_selector.value}")
         self._selected_date = self._date_selector.value
+        pn.state.notifications.info(f"Loading {self._composite_selector.value} Composite for date: {self._selected_date}")
+        self._initialize_usergeom()
+        self._hvpane_title.object = f"## {self.satellite} | {self._selected_date} | {self._composite_selector.value} RGB Composite"
         self._selected_granule = self.granules[self._selected_date]
         self._loading_icon.value = True
 
@@ -159,6 +180,8 @@ class StageClassifyUserpts(param.Parameterized):
             crs=ccrs.epsg(self.registry.epsg),tooltip='Unburned Polygons',color='w')
 
     def _click_back(self,event):
+        self._build_table_df() # Reload to ensure updates to table
+        self._table.value = self._classifying_df
         self._layout.objects = [self._custom_tabs['SelectData']]
 
     @lru_cache(maxsize=3)
@@ -181,10 +204,9 @@ class StageClassifyUserpts(param.Parameterized):
     def _clear_points(self,event):
         self._initialize_usergeom()
         self._load_img(event)
-        # self._brn_points = gv.Points([])
-        # self._unb_points = gv.Points([])
-        # self._brn_polys = gv.Polygons([])
-        # self._unb_polys = gv.Polygons([])
+
+    def _reset_points(self,event):
+        pn.state.notifications.info("Not yet implemented")
 
     def _load_points(self,event):
         def apply_points(target,source):
