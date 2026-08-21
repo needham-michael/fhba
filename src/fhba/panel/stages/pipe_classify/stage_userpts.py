@@ -16,6 +16,7 @@ import xarray as xr
 from fhba.panel.utils import style
 from fhba.viz import (nir_red_sqrt, nir_red_red, nir_red_mwir, shp2gv)
 from fhba.panel.stages.pipe_classify.pane_user_annotate import PaneUserAnnotate
+from fhba.panel.stages.pipe_classify.pane_classify import PaneClassifyPixels
 
 class StageClassifyUserpts(param.Parameterized):
 
@@ -33,15 +34,21 @@ class StageClassifyUserpts(param.Parameterized):
         super().__init__(**params)
         self._get_style()
         self._setup()
-        self._pane_user_annotate = PaneUserAnnotate(
-            granules=self.granules,rgb_composite_fn = self._rgb_composite_fn,
-            **params)
 
+        self._pane_user_annotate = PaneUserAnnotate(
+            granules=self.granules,rgb_composite_fn = self._rgb_composite_fn,**params)
+        self._pane_classify_pixels = PaneClassifyPixels(
+            granules=self.granules,**params)
+        
         self._custom_tabs = {
             'SelectData':pn.Card(self._dateselect_layout,**self.card),
             'MappingPane': pn.Column(
                 self._back_button,
-                self._pane_user_annotate
+                pn.Tabs(
+                    ("Instructions",pn.pane.Markdown("Instructions")),
+                    ("Map",pn.Row(self._pane_user_annotate,self._pane_classify_pixels,)),
+                    active=1,dynamic=False
+                )
         )}
 
         self._layout = pn.Card(objects=self._custom_tabs['SelectData'],**self.card)
@@ -62,7 +69,6 @@ class StageClassifyUserpts(param.Parameterized):
         self._rgb_composite_options_all = list(self._rgb_composite_fn.keys())
 
         self._build_selectdata_pane()
-
 
     def _build_selectdata_pane(self):
         self._build_table_df()
@@ -107,6 +113,7 @@ class StageClassifyUserpts(param.Parameterized):
         self._selected_composite = self._composite_selector.value
         pn.state.notifications.info(f"Loading {self._selected_composite} Composite for date: {self._selected_date}")     
         self._pane_user_annotate._load_img(event,date=self._selected_date,composite=self._selected_composite)
+        self._pane_classify_pixels._assign_date(date=self._date_selector.value)
         self._layout.objects = [self._custom_tabs['MappingPane']]
         self._loading_icon.value = False
 
