@@ -28,10 +28,15 @@ class StageClassifyUserpts(param.Parameterized):
     valid_min_date = param.String()
     sat_info = param.Parameter()
     sat_band_subset = param.List()
+    classification_methods = param.List()
     granules = param.Parameter()
 
     def __init__(self,**params):
         super().__init__(**params)
+        # self.classification_methods = self.registry.classification_method_defaults
+        if self.classification_methods == []:
+            self._layout = pn.pane.Alert("Must Select At Least One Classification Method",alert_type='warning')
+            return
         self._get_style()
         self._setup()
 
@@ -87,6 +92,7 @@ class StageClassifyUserpts(param.Parameterized):
         )
 
         self._dateselect_layout = pn.Column(
+            pn.pane.Markdown(f"# Classification Methods: \n * " + "\n * ".join(self.classification_methods),hard_line_break=True),
             self._composite_selector,
             self._date_selector,
             pn.Row(self._load_img_button,self._loading_icon),

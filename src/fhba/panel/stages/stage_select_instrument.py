@@ -18,16 +18,18 @@ class StageSelectInstrument(param.Parameterized):
         )
 
     sat_band_subset = param.List()
+    classification_methods = param.List()
     satellite = param.String()
     registry = param.Parameter()
     valid_max_date = param.String() # dates stored as strings like "YYYY-MM-DD"
     valid_min_date = param.String()
     sat_info = param.Parameter()
 
-    def __init__(self,registry,show_band_selector=False,**params):
+    def __init__(self,registry,show_band_selector=False,show_classification_selector=False,**params):
         super().__init__(**params)
         self.registry = registry
         self._show_band_selector = show_band_selector
+        self._show_classification_selector = show_classification_selector
         self._get_style()
         self._get_valid_dates()
 
@@ -35,6 +37,7 @@ class StageSelectInstrument(param.Parameterized):
         self.sat_info = self.registry.sat_info[self.satellite_full]
         
         self._build_band_selector_pane()
+        self._build_classification_selector_pane()
 
         self._layout = pn.Card(pn.Row(
             pn.Column(
@@ -43,6 +46,7 @@ class StageSelectInstrument(param.Parameterized):
                 self.param.satellite_full,
             ),
             self._band_selector_layout,
+            self._classification_selector_layout,
             ),**self.card,
             # title="Select Satellite and Year for Analysis"
         )
@@ -84,6 +88,31 @@ class StageSelectInstrument(param.Parameterized):
             visible=self._show_band_selector
         )
 
+    def _build_classification_selector_pane(self):
+        self._classification_selector = pn.widgets.MultiChoice.from_param(
+            self.param.classification_methods,
+            options=self.registry.classification_method_all,
+            value=self.registry.classification_method_defaults,
+            label="Select Classification Methods"
+        )
+
+        self._classification_selector_save_button = pn.widgets.Button(
+            name="Save as Case Default",on_click = self._save_classification_defaults,
+            **self.button_primary,
+        )
+
+        self._classification_selector_reset_button = pn.widgets.Button(
+            name="Reset to Default",on_click = self._reset_classification_defaults,
+            color='default',
+        )
+
+        self._classification_selector_layout = pn.Column(
+            self._classification_selector,
+            self._classification_selector_save_button,
+            self._classification_selector_reset_button,
+            visible=self._show_classification_selector
+        )  
+
     def _save_band_defaults(self,event):
         self.registry.sat_band_defaults[self.sat_info.instrument] = self._band_selector.value + self.sat_info.band_list_minimal
         self.registry.to_json()
@@ -94,6 +123,17 @@ class StageSelectInstrument(param.Parameterized):
         self.registry.to_json()
         self._band_selector.value=self.sat_info.band_list_default
         pn.state.notifications.info("Satellite Bands Reset to Default List")
+
+    def _save_classification_defaults(self,event):
+        self.registry.classification_method_defaults = self._classification_selector.value 
+        self.registry.to_json()
+        pn.state.notifications.info("Classification Methods Saved as Case Default")
+
+    def _reset_classification_defaults(self,event):
+        self.registry.classification_method_defaults = self.registry.classification_method_all
+        self.registry.to_json()
+        self._classification_selector.value=self.registry.classification_method_defaults
+        pn.state.notifications.info("Classification Methods Reset to Default List")
 
     def _get_style(self):
         style_dict = style()

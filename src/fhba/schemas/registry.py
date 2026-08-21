@@ -1,9 +1,9 @@
 import datetime
 import json
 from pathlib import Path
-from typing import List, Literal, Optional, Tuple, Union
+from typing import List, Literal, Optional, Tuple, Union, Dict
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 # from fhba.schemas.app_config import AppConfig
 
@@ -47,7 +47,7 @@ class FileMetadata(BaseModel):
     reproj_granule : Optional[Path] = None
     truecolor_img_path: Optional[Path] = None
     user_pts: Optional[Path] = None
-    burnmask: Optional[Path] = None
+    burnmask: Dict[str, Path] | None = Field(default_factory=dict)
     
 class GranuleManager(BaseModel):
     """All metadata assoc. with an individual satellite granule on a specific date.
@@ -104,6 +104,9 @@ class Registry(BaseModel):
     # Instrument Specifications
     sat_info: dict[str, SatelliteSpec] = None
     sat_band_defaults: dict[str, List] = {}
+
+    classification_method_all: List[str] | None = ['eucl','svm','rf']
+    classification_method_defaults: List[str] | None = ['eucl','svm','rf']
 
     # Resampling Specifications (default to EPSG:3857 Web Mercator)
     area_def_spec: Optional[AreaDefSpec] = None

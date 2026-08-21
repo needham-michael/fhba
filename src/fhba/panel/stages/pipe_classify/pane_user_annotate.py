@@ -26,6 +26,7 @@ class PaneUserAnnotate(param.Parameterized):
     valid_min_date = param.String()
     sat_info = param.Parameter()
     sat_band_subset = param.List()
+    classification_methods = param.List()
     granules = param.Parameter()
 
     def __init__(self,granules,rgb_composite_fn,**params):

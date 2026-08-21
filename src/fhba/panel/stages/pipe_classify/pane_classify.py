@@ -26,6 +26,7 @@ class PaneClassifyPixels(param.Parameterized):
     valid_min_date = param.String()
     sat_info = param.Parameter()
     sat_band_subset = param.List()
+    classification_methods = param.List()
     granules = param.Parameter()
 
     def __init__(self,granules,**params):
@@ -50,6 +51,8 @@ class PaneClassifyPixels(param.Parameterized):
 
         self._loading_icon = pn.widgets.LoadingSpinner(value=False,size=35)
 
+        self._load_button = pn.widgets.Button(name="Load Burnmask",**self.button_primary)
+        self._classify_button = pn.widgets.Button(name="Generate Burnmask",**self.button_primary)
         self._export_button = pn.widgets.Button(name="Save Burnmask",**self.button_success)
         self._export_overwrite_checkbox = pn.widgets.Checkbox(name="Overwrite Burnmask?",value=False)
 
@@ -57,6 +60,8 @@ class PaneClassifyPixels(param.Parameterized):
         self._classify_pixels_widgets = pn.WidgetBox(
             pn.pane.Markdown("## Burnmask Classification Controls"),
             pn.Row(
+                self._load_button,
+                self._classify_button,
                 pn.Column(
                     self._export_button,
                     self._export_overwrite_checkbox

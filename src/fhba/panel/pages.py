@@ -426,7 +426,7 @@ class PageAnalysisPipeline(param.Parameterized):
     def _build_pipeline_classify(self):
         _pipe = pn.pipeline.Pipeline(
             stages=[
-                ('Select',StageSelectInstrument(registry=self._json2reg(return_obj=True))),
+                ('Select',StageSelectInstrument(registry=self._json2reg(return_obj=True),show_classification_selector=True)),
                 ('Classify Points',StageClassifyUserpts)
             ],
             debug=True
