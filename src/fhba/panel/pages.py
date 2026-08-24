@@ -1,8 +1,8 @@
+import importlib
 import json
 import os
 import shutil
 
-from importlib import resources
 from pathlib import Path
 
 import cartopy.crs as ccrs
@@ -42,6 +42,7 @@ class PageSelectCase(param.Parameterized):
 
         self._get_style()
         self._setup()
+        self._nlcd_file_fullres = importlib.resources.files("fhba.landcover") / "Annual_NLCD_LndCov_2024_CU_C1V1.tif"
 
         layout_existing_case = pn.Card(pn.Column(
             pn.Row(self._existing_case_selector,self._existing_case_load_button)
@@ -70,7 +71,7 @@ class PageSelectCase(param.Parameterized):
                 ),
                 self._newcase_output_dir_printout,
                 pn.layout.Divider(),
-                self._newcase_button_create
+                pn.Row(self._newcase_button_create,self._newcase_loading_spinner)
             ),
         ),**self.card,title="Create New Case")
 
@@ -133,6 +134,7 @@ class PageSelectCase(param.Parameterized):
         self._newcase_button_create = pn.widgets.Button(
             label="Create New Case",on_click=self._click_new_case,**self.button_success)
         self.gv_map = pn.pane.HoloViews(gv.tile_sources.OSM().opts(title="New Case Bounding Box"),width=400,height=400)
+        self._newcase_loading_spinner = pn.widgets.LoadingSpinner(name="",value=False,size=35)
 
         # DELETE CASE WIDGETS
         self._delcase_selector = pn.widgets.Select(options=self._existing_case_selector.options)
@@ -164,12 +166,8 @@ class PageSelectCase(param.Parameterized):
 
     def _click_new_case(self,event):
         advance = True
-
-        _nlcd_file_fullres = None
-        if _nlcd_file_fullres is None:
-            import importlib
-            pn.state.notifications.warning("USING HARDCODED NLCD PATH")
-            _nlcd_file_fullres = importlib.resources.files("fhba.app.appdata.annual_nlcd") / "Annual_NLCD_LndCov_2024_CU_C1V1.tif"
+        self._newcase_loading_spinner.value = True
+        self._newcase_loading_spinner.name = "Verifying Inputs..."
 
         self._verify_resolution()
 
@@ -190,6 +188,8 @@ class PageSelectCase(param.Parameterized):
 
         if not advance:
             pn.state.notifications.error(msg)
+            self._newcase_loading_spinner.value = False
+            self._newcase_loading_spinner.name = None
             return
 
         _path_data = Path(self._newcase_data_dir_full)
@@ -198,9 +198,13 @@ class PageSelectCase(param.Parameterized):
 
         os.makedirs(name=_path_data)
         os.makedirs(name=_path_output)
+        
+        self._newcase_loading_spinner.name = "Creating Registry"
         self._create_case_registry(_casename,_path_data,_path_output)
+        self._newcase_loading_spinner.name = "Resampling Landcover Mask"
         self._create_case_landcover_mask(
-            registry=self._case_registry,nlcd_file_fullres=_nlcd_file_fullres)
+            registry=self._case_registry,nlcd_file_fullres=self._nlcd_file_fullres)
+        self._newcase_loading_spinner.name = "Saving New Case"
         self._update_fhba_cases_json(_casename,_path_data)
         pn.state.notifications.success(f"New Case Created: {_casename}")
         self._existing_case_load_button_disabled = False
@@ -214,6 +218,8 @@ class PageSelectCase(param.Parameterized):
         print(f"{self._delcase_selector.options = }")
 
         # WORKAROUND FOR SELECTORS NOT UPDATING AUTOMATICALLY; RELOAD PAGE
+        self._newcase_loading_spinner.value = False
+        self._newcase_loading_spinner.name = ""
         pn.state.location.reload = True
         
     def _click_del_case(self,event):
