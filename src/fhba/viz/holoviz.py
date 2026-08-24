@@ -71,6 +71,16 @@ def ds2rgb(
 
 import holoviews as hv
 
+def bm_rgb(
+    bm : xr.Dataset,
+    rgb_color : Tuple[int, int, int] 
+) -> gv.element.geo.RGB:
+
+    # Mask 0's to only show 1's
+    bm = bm.where(bm != 0)
+
+    return gv.RGB(data=(bm.x,bm.y,*[(bm.T*c/255) for c in rgb_color]),crs=bm.crs)
+
 def initialize_userpoints(color,marker='x',point_locations=None,label=None):
 
     if point_locations is None:

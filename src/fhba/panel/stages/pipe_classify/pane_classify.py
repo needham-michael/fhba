@@ -16,7 +16,7 @@ import xarray as xr
 
 from fhba.classification import classify_pixels
 from fhba.panel.utils import style
-from fhba.viz import shp2gv
+from fhba.viz import shp2gv, bm_rgb
 
 class PaneClassifyPixels(param.Parameterized):
 
@@ -48,7 +48,9 @@ class PaneClassifyPixels(param.Parameterized):
 
     def _assign_date(self,date):
         self._selected_date = date
+        self._selected_granule = self.granules[self._selected_date]
         self._classify_pixels_pane_title.object = f"## {self.satellite} | {self._selected_date} | Burnmask"
+        self._load_button.disabled = not self._selected_granule.is_classified
 
     def _get_style(self):
         style_dict = style()
@@ -59,7 +61,7 @@ class PaneClassifyPixels(param.Parameterized):
 
         self._loading_icon = pn.widgets.LoadingSpinner(value=False,size=35)
 
-        self._load_button = pn.widgets.Button(name="Load Burnmask",**self.button_primary)
+        self._load_button = pn.widgets.Button(name="Load Burnmask",**self.button_primary,disabled=True,on_click=self._load_burnmask)
         self._classify_button = pn.widgets.Button(name="Generate Burnmask",on_click=self._classify_pixels,**self.button_primary)
         self._export_button = pn.widgets.Button(name="Save Burnmask",**self.button_success)
         self._export_overwrite_checkbox = pn.widgets.Checkbox(name="Overwrite Burnmask?",value=False)
@@ -128,11 +130,7 @@ class PaneClassifyPixels(param.Parameterized):
         print("Done.")
 
         pn.state.notifications.info("Classification Complete.")
-
-        # FOR MONDAY 8/24
-        # LANDCOVER MASK
-        #    - Resampling (within preprocessing pipe or first-time setup?)
-        #    - Combine with cloud mask for daily mask
+        self._load_button.disabled = False
 
     def _get_cloudmask(self,threshold = 0.75):
         if self.sat_info.instrument == 'viirs':
@@ -140,6 +138,19 @@ class PaneClassifyPixels(param.Parameterized):
             
         else:
             raise NotImplementedError(f"{self.sat_info.instrument =}")
+
+    def _load_burnmask(self,event):
+        self._load_ds()
+        self._merge_burnmasks()
+        self._apply_majority_voting()
+
+        self._merged_burnmask.attrs['crs'] = ccrs.epsg(self.registry.epsg)
+
+        self._gv_rgv = bm_rgb(bm=self._merged_burnmask,rgb_color=(168,84,50))
+
+        self._classify_pixels_pane.object = self._maptiles * self._county_overlay * self._gv_rgv
+
+
 
     def _load_userpts(self):
         self._selected_userpts = gpd.read_file(
@@ -161,11 +172,22 @@ class PaneClassifyPixels(param.Parameterized):
     @lru_cache(maxsize=3)
     def _load_ds_viirs(self,date):
         granule_manager = self.granules[date]
-        self._selected_ds = xr.open_dataset(granule_manager.files.reproj_granule)
+        self._selected_ds = xr.open_dataset(granule_manager.files.burnmask)
         self._selected_ds = self._selected_ds.load()
         self._selected_ds.attrs['crs'] = ccrs.epsg(self.registry.epsg)
-        self._classify_ds = self._selected_ds[[x for x in self._selected_ds.data_vars if x in self.sat_info.band_list_all]]
+        self._classify_ds = self._selected_ds[[x for x in self._selected_ds.data_vars if x in self.classification_methods]]
 
+    def _merge_burnmasks(self):
+        self._merged_burnmask = xr.zeros_like(self._classify_ds[self.classification_methods[0]])
+
+        for m in self.classification_methods:
+            self._merged_burnmask += self._classify_ds[m]
+
+    def _apply_majority_voting(self):
+        n_methods = len(self.classification_methods)
+        thr = (n_methods // 2) + 1
+
+        self._merged_burnmask = (self._merged_burnmask >= thr).astype(int)
 
     # For some reason need to call self.__panel__() to display this
     # since it is a page element and not an independent pipeline stage

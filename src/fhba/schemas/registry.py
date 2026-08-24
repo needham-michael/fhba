@@ -61,7 +61,8 @@ class GranuleManager(BaseModel):
     is_processed : Whether the raw granule has had bands extracted and reproj.
     is_user_categorized : Whether the user has categorized burned/unburned points
     is_classified : Whether the classification algorithm(s) has been applied to
-        generate a satellite burnmask for this granule
+        generate a satellite burnmask for this granule for all algorithms
+    is_finalized : Whether the burnmask for this date has been QA'd and finalized
     
     """
     date: datetime.datetime
@@ -77,6 +78,7 @@ class GranuleManager(BaseModel):
     is_processed: bool = False
     is_user_categorized: bool = False
     is_classified: bool = False
+    is_finalized: bool = False
 
     def __str__(self):
         return f"[{self.satellite} GranuleManager {self.date.strftime('%Y-%m-%d')}]"
