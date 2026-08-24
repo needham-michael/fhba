@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 import panel as pn
 import param
+import rioxarray as rxr
 import shapely
 import xarray as xr
 
@@ -92,15 +93,17 @@ class PaneClassifyPixels(param.Parameterized):
         )
 
     def _classify_pixels(self,event):
-        print("load_ds()")
         self._load_ds()
-        print("load_userpts()")
         self._load_userpts()
-        print("get_cloudmask()")
         self._get_cloudmask()
 
         self._burnmask = {}
         self._burnmask_conf = {}
+
+        print("Reading lcmask")
+        lcmask = rxr.open_rasterio(self.registry.path_lmask).squeeze().rename("lcmask")
+
+        daily_mask = lcmask * self._cloudmask
 
         for method in self.classification_methods:
             print(f"Classification {method = }")
@@ -109,21 +112,32 @@ class PaneClassifyPixels(param.Parameterized):
                 ds = self._classify_ds, userpts = self._selected_userpts, method = method, 
             )
 
-        print("Merging")
-        _bm = xr.Dataset({m:self._burnmask[m] for m in self._burnmask})
-        _bm_conf = xr.Dataset({f"{m}_conf":self._burnmask_conf[m] for m in self._burnmask_conf})
-        print("Saving")
-        xr.merge([_bm,_bm_conf]).to_netcdf("./tmp_bm.nc")
+        # Apply daily mask (landcover * cloudmask) to burnmask and confidence maps 
+        _bm = xr.Dataset({m:self._burnmask[m] * daily_mask for m in self._burnmask})
+        _bm_conf = xr.Dataset({f"{m}_conf":self._burnmask_conf[m] * daily_mask for m in self._burnmask_conf})
+
+        daily_burnmask_file = self.registry.path_burnmask / f"{self.satellite}_{self.registry.casename}_burnmask_{self._selected_date}.nc"
+        print("Saving output to {daily_burnmask_file}")
+
+        xr.merge([_bm,_bm_conf,self._cloudmask,lcmask]).to_netcdf(daily_burnmask_file)
+
+        print("Updating the registry")
+        self.granules[self._selected_date].is_classified = True
+        self.granules[self._selected_date].files.burnmask = daily_burnmask_file
+        self.registry.to_json()
+        print("Done.")
+
+        pn.state.notifications.info("Classification Complete.")
 
         # FOR MONDAY 8/24
-        # RENAME pydantic rf -> rforest to match classify_pixels expectation
         # LANDCOVER MASK
-        #    - Resampling (within preprocessing pipe?)
+        #    - Resampling (within preprocessing pipe or first-time setup?)
         #    - Combine with cloud mask for daily mask
 
-    def _get_cloudmask(self):
+    def _get_cloudmask(self,threshold = 0.75):
         if self.sat_info.instrument == 'viirs':
-            self._cloudmask = self._selected_ds['Clear_Sky_Confidence'] > 0.75
+            self._cloudmask = (self._selected_ds['Clear_Sky_Confidence'] > threshold).rename("cldmsk")
+            
         else:
             raise NotImplementedError(f"{self.sat_info.instrument =}")
 

@@ -47,7 +47,7 @@ class FileMetadata(BaseModel):
     reproj_granule : Optional[Path] = None
     truecolor_img_path: Optional[Path] = None
     user_pts: Optional[Path] = None
-    burnmask: Dict[str, Path] | None = Field(default_factory=dict)
+    burnmask: Path | None = None
     
 class GranuleManager(BaseModel):
     """All metadata assoc. with an individual satellite granule on a specific date.
@@ -89,7 +89,8 @@ class Registry(BaseModel):
     caseroot: Path
     output_root: Path
     dataroot: Path
-    path_lmask: Path
+    path_lmask_dir: Path
+    path_lmask : Path | None = None
     path_burnmask: Path
     path_wldv: Path
     path_raw: Path
@@ -105,8 +106,8 @@ class Registry(BaseModel):
     sat_info: dict[str, SatelliteSpec] = None
     sat_band_defaults: dict[str, List] = {}
 
-    classification_method_all: List[str] | None = ['eucl','svm','rf']
-    classification_method_defaults: List[str] | None = ['eucl','svm','rf']
+    classification_method_all: List[str] | None = ['eucl','svm','rforest']
+    classification_method_defaults: List[str] | None = ['eucl','svm','rforest']
 
     # Resampling Specifications (default to EPSG:3857 Web Mercator)
     area_def_spec: Optional[AreaDefSpec] = None

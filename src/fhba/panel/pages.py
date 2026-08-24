@@ -165,6 +165,12 @@ class PageSelectCase(param.Parameterized):
     def _click_new_case(self,event):
         advance = True
 
+        _nlcd_file_fullres = None
+        if _nlcd_file_fullres is None:
+            import importlib
+            pn.state.notifications.warning("USING HARDCODED NLCD PATH")
+            _nlcd_file_fullres = importlib.resources.files("fhba.app.appdata.annual_nlcd") / "Annual_NLCD_LndCov_2024_CU_C1V1.tif"
+
         self._verify_resolution()
 
         if not self._newcase_resolution_valid:
@@ -193,6 +199,8 @@ class PageSelectCase(param.Parameterized):
         os.makedirs(name=_path_data)
         os.makedirs(name=_path_output)
         self._create_case_registry(_casename,_path_data,_path_output)
+        self._create_case_landcover_mask(
+            registry=self._case_registry,nlcd_file_fullres=_nlcd_file_fullres)
         self._update_fhba_cases_json(_casename,_path_data)
         pn.state.notifications.success(f"New Case Created: {_casename}")
         self._existing_case_load_button_disabled = False
@@ -253,6 +261,16 @@ class PageSelectCase(param.Parameterized):
             path_output=path_output,bbox=self._newcase_bbox_input.value,
             dx=self._dx,dy=self._dy
             )
+
+    def _create_case_landcover_mask(self,registry : Registry, nlcd_file_fullres: Path):
+        from fhba.panel.setup.create_case_registry import create_case_landcover_mask
+        print("Creating Landcover Mask...")
+        create_case_landcover_mask(
+            registry=registry,
+            nlcd_file_fullres=nlcd_file_fullres
+            )
+        
+        print("Done creating Landcover Mask.")
         
     def _show_bbox(self,event):
         self._newcase_bbox_valid, msg = bbox_is_valid(self._newcase_bbox_input.value)
