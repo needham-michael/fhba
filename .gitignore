@@ -20,6 +20,8 @@ appdata/
 *.zip
 *.csv
 *.json
+*.nc
+*.tif
 
 # Python-generated files
 __pycache__/
