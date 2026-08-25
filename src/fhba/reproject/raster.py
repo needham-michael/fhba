@@ -38,18 +38,21 @@ def reproject_raster(raster : xr.Dataset,target_area_def : AreaDefinition) -> xr
     return resampler.get_sample_from_neighbour_info(
         data=raster.squeeze(),fill_value=raster._FillValue)
 
-def write_raster(raster : xr.Dataset,output_filename : Path,target_area_def : AreaDefinition) -> None:
+def write_raster(raster : xr.DataArray,output_filename : Path,target_area_def : AreaDefinition, dtype: str) -> None:
+    valid_dtypes = ['int8','float32','float64']
+    if dtype not in valid_dtypes:
+        raise ValueError(f"dtype must be one of {valid_dtypes=}")
 
     meta = {
         "driver": "GTiff",
         "height": target_area_def.height,
         "width": target_area_def.width,
         "count": 1,
-        "dtype": raster.dtype,
+        "dtype": dtype,
         "crs": target_area_def.crs,
         "transform": from_bounds(
             *target_area_def.area_extent,target_area_def.width,target_area_def.height),
     }
 
     with rasterio.open(output_filename, "w", **meta) as dst:
-      dst.write(raster, 1)
+      dst.write(raster.data, 1)

@@ -56,7 +56,7 @@ def create_case_landcover_mask(registry : Registry, nlcd_file_fullres: Path) -> 
 
     nlcd_output_filename = registry.path_lmask_dir / f"nlcd_lcmask_{registry.casename}.tif"
 
-    write_raster(raster=nlcd_mask,output_filename=nlcd_output_filename,target_area_def=target_area_def)
+    write_raster(raster=nlcd_mask,output_filename=nlcd_output_filename,target_area_def=target_area_def,dtype='int8')
 
     registry.path_lmask = nlcd_output_filename
 
