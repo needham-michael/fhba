@@ -47,7 +47,8 @@ class FileMetadata(BaseModel):
     reproj_granule : Optional[Path] = None
     truecolor_img_path: Optional[Path] = None
     user_pts: Optional[Path] = None
-    burnmask: Path | None = None
+    burnmask_prelim: Path | None = None
+    burnmask_final: Path | None = None
     
 class GranuleManager(BaseModel):
     """All metadata assoc. with an individual satellite granule on a specific date.
