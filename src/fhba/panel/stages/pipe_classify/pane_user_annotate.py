@@ -217,43 +217,14 @@ class PaneUserAnnotate(param.Parameterized):
         self._userpts_gdf['isBurned'] = self._userpts_gdf['isBurned'].astype(int)
 
     def _userpts2gdf(self,xname='Longitude',yname='Latitude'):
-        def _pts2gdf(stream,xname,yname,isBurned):
-            # THIS SHOULD BE REWRITTEN TO HAVE A MORE CLEARLY DEFINED NULL CASE
-            # INSTEAD OF RELYING ON THE TRY/EXCEPT BLOCK
-            try:
-                return gpd.GeoDataFrame(
-                    data={'isBurned':np.ones_like(stream.data[xname]) * isBurned},
-                    geometry=shapely.points(stream.data[xname],stream.data[yname])
-                )
-            except:
-                print(f"No valid point data found: {isBurned = }")
-                print(f"{stream.data = }")
-                print("No point data?")
-                print("-"*79)
-                return gpd.GeoDataFrame(geometry=[],data={'isBurned':[]})
 
-        self._brn_points_gdf = _pts2gdf(self._brn_point_stream,xname,yname,isBurned=1)
-        self._unb_points_gdf = _pts2gdf(self._unb_point_stream,xname,yname,isBurned=0)
+        self._brn_points_gdf = pts2gdf(self._brn_point_stream,xname,yname,isBurned=1)
+        self._unb_points_gdf = pts2gdf(self._unb_point_stream,xname,yname,isBurned=0)
 
     def _userpoly2gdf(self):
-        def _poly2gdf(stream,isBurned):
-            # THIS SHOULD BE REWRITTEN TO HAVE A MORE CLEARLY DEFINED NULL CASE
-            # INSTEAD OF RELYING ON THE TRY/EXCEPT BLOCK
-            try:
-                polypts = poly2pts(ds=self._selected_ds,poly_data=stream.data)
-                return gpd.GeoDataFrame(
-                    data={'isBurned':np.ones_like(polypts) * isBurned},
-                    geometry=polypts
-                )
-            except: 
-                print(f"No valid polygon data found: {isBurned = }")
-                print(f"{stream.data = }")
-                print("No polygon data?")
-                print("-"*79)
-                return gpd.GeoDataFrame(geometry=[],data={'isBurned':[]})
 
-        self._brn_poly_gdf = _poly2gdf(self._brn_poly_stream,isBurned=1)
-        self._unb_poly_gdf = _poly2gdf(self._unb_poly_stream,isBurned=0)
+        self._brn_poly_gdf = poly2gdf(self._brn_poly_stream,isBurned=1,ds=self._selected_ds)
+        self._unb_poly_gdf = poly2gdf(self._unb_poly_stream,isBurned=0,ds=self._selected_ds)
 
     def _get_style(self):
         style_dict = style()
@@ -309,8 +280,9 @@ def initialize_userpoly(
     return polys, poly_stream
 
 def poly2pts(
-    ds : xr.Dataset,
-    poly_data : Dict
+    ds : xr.Dataset | xr.DataArray,
+    poly_data : Dict,
+    return_mask : bool = False
 ) -> np.array:
     """Identifies points on dataset grid that fall within polygons"""
 
@@ -326,4 +298,37 @@ def poly2pts(
 
     # Return arrays of xs, ys for points within polygons
     mask = shapely.contains(polys,points)
+    if return_mask:
+        return np.reshape(mask,shape=(len(ds.y),len(ds.x)))
     return shapely.points(xgrid_flat[mask], ygrid_flat[mask])
+
+def pts2gdf(stream,xname,yname,isBurned):
+    # THIS SHOULD BE REWRITTEN TO HAVE A MORE CLEARLY DEFINED NULL CASE
+    # INSTEAD OF RELYING ON THE TRY/EXCEPT BLOCK
+    try:
+        return gpd.GeoDataFrame(
+            data={'isBurned':np.ones_like(stream.data[xname]) * isBurned},
+            geometry=shapely.points(stream.data[xname],stream.data[yname])
+        )
+    except:
+        print(f"No valid point data found: {isBurned = }")
+        print(f"{stream.data = }")
+        print("No point data?")
+        print("-"*79)
+        return gpd.GeoDataFrame(geometry=[],data={'isBurned':[]})
+
+def poly2gdf(stream,isBurned,ds):
+    # THIS SHOULD BE REWRITTEN TO HAVE A MORE CLEARLY DEFINED NULL CASE
+    # INSTEAD OF RELYING ON THE TRY/EXCEPT BLOCK
+    try:
+        polypts = poly2pts(ds=ds,poly_data=stream.data)
+        return gpd.GeoDataFrame(
+            data={'isBurned':np.ones_like(polypts) * isBurned},
+            geometry=polypts
+        )
+    except: 
+        print(f"No valid polygon data found: {isBurned = }")
+        print(f"{stream.data = }")
+        print("No polygon data?")
+        print("-"*79)
+        return gpd.GeoDataFrame(geometry=[],data={'isBurned':[]})

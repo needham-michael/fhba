@@ -40,6 +40,8 @@ class StageClassifyUserpts(param.Parameterized):
         self._get_style()
         self._setup()
 
+
+
         self._pane_user_annotate = PaneUserAnnotate(
             granules=self.granules,rgb_composite_fn = self._rgb_composite_fn,**params)
         self._pane_classify_pixels = PaneClassifyPixels(
