@@ -59,11 +59,21 @@ class AppPages(param.Parameterized):
     
 def build_app():
 
+    is_dev_mode = pn.config.autoreload
+    header_background = "#0072B2"
+    app_title = "Flint Hills Burned Area"
+    if is_dev_mode:
+        header_background = "#E69F00"
+        app_title = "Flint Hills Burned Area (DEV MODE)"
+
+
     app = pn.template.MaterialTemplate(
         main=[
             VersionInfo()._layout,
             AppPages()._layout,
         ],
+        header_background=header_background,
+        title = app_title
     )
         
     return app
