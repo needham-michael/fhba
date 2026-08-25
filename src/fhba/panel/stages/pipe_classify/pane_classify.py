@@ -95,8 +95,7 @@ class PaneClassifyPixels(param.Parameterized):
                 self._reset_qa_button,
                 pn.Column(
                     self._export_button,
-                    self._export_overwrite_checkbox,
-                    self._skipqa_checkmark
+                    pn.Row(self._export_overwrite_checkbox,self._skipqa_checkmark)
                 ),
                 self._loading_icon
             )
@@ -237,6 +236,8 @@ class PaneClassifyPixels(param.Parameterized):
             if not self._skipqa_checkmark.value:
                 pn.state.notifications.warning("Apply QA Masking or Select `Skip QA` Checkmark")
                 return
+
+        if self._skipqa_checkmark.value:
             self._merged_burnmask_qa = self._merged_burnmask
 
         final_burnmask_file = self.registry.path_burnmask_final / f"{self.satellite}_{self.registry.casename}_burnmask_final_{self._selected_date}.tif"
