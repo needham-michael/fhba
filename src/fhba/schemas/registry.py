@@ -35,6 +35,7 @@ class SatelliteSpec(BaseModel):
     band_list_default : List[str]
     band_list_minimal : List[str]
     instrument: str  # e.g., MODIS or VIIRS
+    abbreviation: str | None = None  # e.g., VNP or VJ1
     platform: str    # e.g., AQUA or Suomi-NPP
     start_date: str | None = None
     end_date: str | None = None

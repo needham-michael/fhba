@@ -19,7 +19,7 @@ from fhba.panel.instructions import Instructions
 
 from fhba.panel.stages import (
     StageSelectInstrument, StageDownloadWorldview, StageSortTruecolor, StageDownloadGranules,
-    StageSelectBlendMethod, StageProcessGranules, StageClassifyUserpts
+    StageSelectBlendMethod, StageProcessGranules, StageClassifyUserpts, StageSelectYear, StageAggregate
     )
 
 
@@ -385,6 +385,7 @@ class PageAnalysisPipeline(param.Parameterized):
             ("1. Download Granules", self._pipeline_download_layout),
             ("2. Process Granules", self._pipeline_process_layout),
             ("3. Classify Granules", self._pipeline_classify_layout),
+            ("4. Aggregate Burnmasks", self._pipeline_aggregate_layout),
             dynamic=True,
             active=1,
         )
@@ -413,6 +414,7 @@ class PageAnalysisPipeline(param.Parameterized):
         self._build_pipeline_download()
         self._build_pipeline_process()
         self._build_pipeline_classify()
+        self._build_pipeline_aggregate()
 
     def _refresh_case_info(self,event):
         self._json2reg()
@@ -458,6 +460,18 @@ class PageAnalysisPipeline(param.Parameterized):
 
         self._pipeline_classify_layout = _pipe
         self._pipeline_classify = _pipe
+
+    def _build_pipeline_aggregate(self):
+        _pipe = pn.pipeline.Pipeline(
+            stages=[
+                ('Select',StageSelectYear(registry=self._json2reg(return_obj=True))),
+                ('Aggregate Burnmasks',StageAggregate),
+            ],
+            debug=True
+        )
+
+        self._pipeline_aggregate_layout = _pipe
+        self._pipeline_aggregate = _pipe
 
     def _advance(self,dest):
         self.advance_to = dest

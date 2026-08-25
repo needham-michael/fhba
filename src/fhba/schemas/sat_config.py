@@ -17,6 +17,7 @@ SATCONFIG: Dict[str,Dict] = {
         "band_list_default" : VIIRS_BANDS_DEFAULT,
         "band_list_minimal" : VIIRS_BANDS_MINIMAL,
         "instrument": "viirs",
+        "abbreviation": 'VNP',
         "platform":'suomi-npp',
         "start_date":"2012-01-19",
         "end_date":"2026-11-01",
@@ -30,6 +31,7 @@ SATCONFIG: Dict[str,Dict] = {
         "band_list_minimal" : VIIRS_BANDS_MINIMAL,
         "instrument": "viirs",
         "platform":'noaa-20',
+        "abbreviation": 'VJ1',
         "start_date":"2018-01-05",
         "end_date":None,
         "access_method": "earthaccess"
@@ -42,6 +44,7 @@ SATCONFIG: Dict[str,Dict] = {
         "band_list_minimal" : VIIRS_BANDS_MINIMAL,
         "instrument": "viirs",
         "platform":'noaa-21',
+        "abbreviation": 'VJ2',
         "start_date":"2023-02-10",
         "end_date":None,
         "access_method": "earthaccess"
