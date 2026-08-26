@@ -307,7 +307,6 @@ class PaneClassifyPixels(param.Parameterized):
         self._loading_icon.value = False
         self._classify_pixels_widgets.disabled = False
 
-    @lru_cache(maxsize=3)
     def _load_prelim_burnmasks_viirs(self,date):
         granule_manager = self.granules[date]
         print(f"{granule_manager.files.burnmask_prelim = }")
