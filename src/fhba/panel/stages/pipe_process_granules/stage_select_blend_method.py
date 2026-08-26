@@ -28,6 +28,7 @@ class StageSelectBlendMethod(param.Parameterized):
 
     def _setup(self):
         self.sat_band_subset += list(sorted(self.sat_info.band_list_minimal))
+        self.sat_band_subset = list(set(self.sat_band_subset)) # ensure no duplicate bands
         self.granules = self.registry.granules[str(self.year)][self.satellite_full]
         
     def _get_style(self):
