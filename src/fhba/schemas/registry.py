@@ -101,14 +101,18 @@ class Registry(BaseModel):
     path_processed: Path
     path_usrpt: Path
     path_burnmask_final: Path
+    path_burnmask_seasonal: Path | None = None
     json_filename: Path
 
     # Granule metadata stored in nested dict accessed by <year>, <satellite>, and <date>
-    granules: dict[str, dict[str, dict[str, GranuleManager]] ] = {}
+    granules: dict[str, dict[str, dict[str, GranuleManager]] ] = Field(default_factory={})
+
+    # Processed burnmasks stored in a nested dict accessed by <year>, <satellite combo> | List[]
+    processed_burnmasks: dict[str, dict[str, List]] = Field(default_factory={})
 
     # Instrument Specifications
     sat_info: dict[str, SatelliteSpec] = None
-    sat_band_defaults: dict[str, List] = {}
+    sat_band_defaults: dict[str, List] = Field(default_factory={})
 
     classification_method_all: List[str] | None = ['eucl','svm','rforest']
     classification_method_defaults: List[str] | None = ['eucl','svm','rforest']
