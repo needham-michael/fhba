@@ -430,7 +430,7 @@ class PageAnalysisPipeline(param.Parameterized):
                 ('SortTrueColor',StageSortTruecolor),
                 ('DownloadGranules',StageDownloadGranules)
             ],
-            debug=True
+            debug=True,ready_parameter='ready'
         )  
 
         self._pipeline_download_layout = _pipe
@@ -443,7 +443,7 @@ class PageAnalysisPipeline(param.Parameterized):
                 ('Mosaic',StageSelectBlendMethod),
                 ('Process',StageProcessGranules),
             ],
-            debug=True
+            debug=True,ready_parameter='ready'
         )     
 
         self._pipeline_process_layout = _pipe
@@ -455,7 +455,7 @@ class PageAnalysisPipeline(param.Parameterized):
                 ('Select',StageSelectInstrument(registry=self._json2reg(return_obj=True),show_classification_selector=True)),
                 ('Classify Points',StageClassifyUserpts)
             ],
-            debug=True
+            debug=True,ready_parameter='ready'
         )     
 
         self._pipeline_classify_layout = _pipe
@@ -467,7 +467,7 @@ class PageAnalysisPipeline(param.Parameterized):
                 ('Select',StageSelectYear(registry=self._json2reg(return_obj=True))),
                 ('Aggregate Burnmasks',StageAggregate),
             ],
-            debug=True
+            debug=True,ready_parameter='ready'
         )
 
         self._pipeline_aggregate_layout = _pipe

@@ -139,7 +139,8 @@ class PaneClassifyPixels(param.Parameterized):
         _bm = xr.Dataset({m:self._burnmask[m] * daily_mask for m in self._burnmask})
         _bm_conf = xr.Dataset({f"{m}_conf":self._burnmask_conf[m] * daily_mask for m in self._burnmask_conf})
 
-        prelim_burnmask_file = self.registry.path_burnmask / f"{self.satellite}_{self.registry.casename}_burnmask_{self._selected_date}.nc"
+        prelim_burnmask_file = self.registry.path_burnmask / f"{self.year}" / f"{self.satellite}" / f"{self.satellite}_{self.registry.casename}_burnmask_{self._selected_date}.nc"
+        prelim_burnmask_file.parent.mkdir(parents=True,exist_ok=True)
         print(f"Saving output to {prelim_burnmask_file}")
 
         xr.merge([_bm,_bm_conf,self._cloudmask,self._lcmask]).to_netcdf(prelim_burnmask_file)
@@ -240,8 +241,8 @@ class PaneClassifyPixels(param.Parameterized):
         if self._skipqa_checkmark.value:
             self._merged_burnmask_qa = self._merged_burnmask
 
-        final_burnmask_file = self.registry.path_burnmask_final / f"{self.satellite}_{self.registry.casename}_burnmask_final_{self._selected_date}.tif"
-
+        final_burnmask_file = self.registry.path_burnmask_final / f"{self.year}"/ f"{self.satellite}" /  f"{self.satellite}_{self.registry.casename}_burnmask_final_{self._selected_date}.tif"
+        final_burnmask_file.parent.mkdir(parents=True,exist_ok=True)
         pn.state.notifications.info("Exporting Final Burnmask...")
         target_area_def = create_target_area_def(
             casename = self.registry.casename,
