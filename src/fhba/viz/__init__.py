@@ -8,3 +8,5 @@ from fhba.viz.holoviz import shp2gdf as shp2gdf
 from fhba.viz.holoviz import bm_rgb as bm_rgb
 
 from fhba.viz.generate_burnmask_figure import generate_burnmask_figure as generate_burnmask_figure
+
+from fhba.viz.map_fig_maker import MapFigMaker as MapFigMaker

@@ -4,6 +4,7 @@ import os
 from collections import defaultdict
 from pathlib import Path
 
+import cartopy.crs as ccrs
 import geopandas as gpd
 import pandas as pd
 import panel as pn
@@ -14,7 +15,7 @@ import xarray as xr
 
 from fhba.aggregate import get_burn_area_by_county
 from fhba.reproject import write_raster, create_target_area_def
-from fhba.viz import generate_burnmask_figure, shp2gdf
+from fhba.viz import MapFigMaker, shp2gdf
 
 from fhba.panel.utils import style, get_valid_dates
 
@@ -29,18 +30,25 @@ class StageAggregate(param.Parameterized):
         self._get_style()
         self._setup()
         
-
-        self._layout = pn.Card(pn.Column(
-            self._widgets,
-            pn.pane.Markdown("## Existing Processed Burnmasks"),
-            self._burnmasks_by_date_tbl
-        ))
+        self._layout = pn.Card(
+            pn.Row(
+                pn.Column(
+                    self._widgets,
+                    pn.pane.Markdown("## Existing Processed Burnmasks"),
+                    self._burnmasks_by_date_tbl
+                ),
+                pn.Column(
+                    self._by_county_tbl_title,
+                    self._by_county_tbl
+                )
+            )
+        )
 
     def _setup(self):
-        
         self._get_valid_dates()
         self._id_burnmasks_by_date()
         self._init_collectors()
+    
         self._target_area_def = create_target_area_def(
             casename = self.registry.casename,
             bounding_box = self.registry.bounding_box,
@@ -57,12 +65,18 @@ class StageAggregate(param.Parameterized):
             options=list(self.registry.granules[str(self.year)].keys()))
         self._button_aggregate = pn.widgets.Button(
             name="Aggregate Burnmasks",**self.button_primary,on_click=self._aggregate_burnmasks)
+        self._progress_bar = pn.widgets.Tqdm()
+
 
         self._widgets = pn.WidgetBox(
             self._dateselector,
             self._sat_checkbox,
-            self._button_aggregate
+            self._button_aggregate,
+            self._progress_bar,
         )
+
+        self._by_county_tbl_title = pn.pane.Markdown("",hard_line_break=True)
+        self._by_county_tbl = pn.widgets.Tabulator(pd.DataFrame(),disabled=True)
 
     def _id_burnmasks_by_date(self):
         """Build dataframe of finalized burnmasks by satellite and date
@@ -84,8 +98,6 @@ class StageAggregate(param.Parameterized):
         self._burnmasks_by_date_display = ((self._burnmasks_by_date * 0)+"1").fillna(0).astype(bool)
         self._burnmasks_by_date_tbl = pn.widgets.Tabulator(self._burnmasks_by_date_display,disabled=True)
 
-        print(f"{self._burnmasks_by_date = }")
-
         self._burnmasks_by_date.reset_index().rename(columns={'index':'date'}).to_csv(
             "_tmp_bm_df.csv",index=False)
 
@@ -101,19 +113,19 @@ class StageAggregate(param.Parameterized):
         try:
             self.registry.processed_burnmasks[str(self.year)]
         except:
-            self.registry.processed_burnmasks[str(self.year)] = defaultdict(list)
+            self.registry.processed_burnmasks[str(self.year)] = defaultdict(dict)
         try:
             self.registry.processed_burnmasks_gpkg[str(self.year)]
         except:
-            self.registry.processed_burnmasks_gpkg[str(self.year)] = defaultdict(list)
+            self.registry.processed_burnmasks_gpkg[str(self.year)] = defaultdict(dict)
         try:
             self.registry.processed_burnmasks_csv[str(self.year)]
         except:
-            self.registry.processed_burnmasks_csv[str(self.year)] = defaultdict(list)
-        # try:
-        #     self.registry.processed_burnmasks_png[str(self.year)]
-        # except:
-        #     self.registry.processed_burnmasks_png[str(self.year)] = defaultdict(list)
+            self.registry.processed_burnmasks_csv[str(self.year)] = defaultdict(dict)
+        try:
+            self.registry.processed_burnmasks_png[str(self.year)]
+        except:
+            self.registry.processed_burnmasks_png[str(self.year)] = defaultdict(dict)
 
     def _aggregate_burnmasks(self,event):
 
@@ -129,7 +141,6 @@ class StageAggregate(param.Parameterized):
 
         # Filter to satellites included in checkbox
         burnmasks_in_daterange = burnmasks_in_daterange[self._sat_checkbox.value]
-        print(f"Burnmasks filtered to satellites: {self._sat_checkbox.value}")
 
         if len(burnmasks_in_daterange) == 0:
             pn.state.notifications.warning("No burnmasks found within specified date range.")
@@ -147,7 +158,8 @@ class StageAggregate(param.Parameterized):
         # Filter to date range subset
         subset_burnmasks = burnmasks_in_daterange[start_date:end_date].dropna(axis=1,how='all')
         date_range = (subset_burnmasks.index[0], subset_burnmasks.index[-1])
-        date_range_str = f"{date_range[0].strftime('%Y-%m-%d')}-{date_range[1].strftime('%Y-%m-%d')}"
+        date_range_str = f"{date_range[0].strftime('%Y%m%d')}-{date_range[1].strftime('%Y%m%d')}"
+        date_range_str_display = f"{date_range[0].strftime('%b %d')} - {date_range[1].strftime('%b %d, %Y')}"
         
         # Require at least two dates for aggregation
         if date_range[0] == date_range[1]:
@@ -157,7 +169,8 @@ class StageAggregate(param.Parameterized):
         present_satellites = list(subset_burnmasks.columns)
         present_satellites_short_name = "-".join(
             [self.registry.sat_info[sat].abbreviation for sat in present_satellites])
-        print(f"{present_satellites_short_name = }")
+
+        self._prep_burnmask_containers(sat_combo=present_satellites_short_name)
         
         burnmask = xr.concat(
             [rxr.open_rasterio(x).squeeze() for x in subset_burnmasks.to_numpy().flatten() if type(x) == str],
@@ -167,23 +180,21 @@ class StageAggregate(param.Parameterized):
         burnmask = (burnmask.sum(dim='bm') >= 2).astype(int)
 
         output_dir = self.registry.path_burnmask_seasonal / f"{self.year}" / present_satellites_short_name
-        output_filename = output_dir / f"{self.registry.casename}_unified_burnmask_{date_range_str}.tif"
-        output_filename_gpkg = str(output_filename).replace(".tif",".gpkg")
-        output_filename_csv = str(output_filename).replace(".tif",".csv")
-        output_filename_png = str(output_filename).replace(".tif",".png")
-        output_filename.parent.mkdir(parents=True,exist_ok=True)
-
-        print(f"{output_filename = }")
+        output_filename_tif = output_dir / f"{self.registry.casename}_unified_burnmask_{date_range_str}.tif"
+        output_filename_gpkg = str(output_filename_tif).replace(".tif",".gpkg")
+        output_filename_csv = str(output_filename_tif).replace(".tif",".csv")
+        output_filename_png = str(output_filename_tif).replace(".tif",".png")
+        output_filename_tif.parent.mkdir(parents=True,exist_ok=True)
 
         write_raster(
             raster = burnmask,
-            output_filename = output_filename,
+            output_filename = output_filename_tif,
             target_area_def = self._target_area_def,
             dtype='int8'
         )
 
         burn_area_by_county = get_burn_area_by_county(
-            burnmask_file = output_filename,
+            burnmask_file = output_filename_tif,
             county_shp = self.registry.county_shp
         )
 
@@ -191,12 +202,48 @@ class StageAggregate(param.Parameterized):
         burn_area_by_county.to_file(output_filename_gpkg,driver='GPKG')
         burn_area_by_county.drop(columns='geometry').to_csv(output_filename_csv,index=False)
 
+        # Update display table
+        total = float(burn_area_by_county['burned_area_acres'].sum())
+        self._by_county_tbl_title.object = f"## {total:,.0f} Acres Burned {date_range_str_display}\n__Based on Imagery from Satellites:__"
+        for sat in present_satellites:
+            self._by_county_tbl_title.object += f"\n * {sat}"
+        self._by_county_tbl.value = burn_area_by_county.drop(columns='geometry')
+
+        MapFigMaker(
+            date_range = date_range_str,
+            sat_combo = present_satellites_short_name,
+            fname_tif = output_filename_tif,
+            crs = ccrs.epsg(self.registry.epsg),
+            fig_title = f"{self.registry.casename.capitalize()} Acreage Burned ({start_date} - {end_date})",
+            county_shp = self.registry.county_shp
+        ).make_figure()
+
+        self.png = output_filename_png
+
         # Update registry
-        self.registry.processed_burnmasks[str(self.year)][present_satellites_short_name].append(output_filename)
-        self.registry.processed_burnmasks_gpkg[str(self.year)][present_satellites_short_name].append(output_filename_gpkg)
-        self.registry.processed_burnmasks_csv[str(self.year)][present_satellites_short_name].append(output_filename_csv)
-        # self.registry.processed_burnmasks+png[str(self.year)][present_satellites_short_name].append(output_filename_png)
+        self.registry.processed_burnmasks[str(self.year)][present_satellites_short_name][date_range_str] = output_filename_tif
+        self.registry.processed_burnmasks_gpkg[str(self.year)][present_satellites_short_name][date_range_str] = output_filename_gpkg
+        self.registry.processed_burnmasks_csv[str(self.year)][present_satellites_short_name][date_range_str] = output_filename_csv
+        self.registry.processed_burnmasks_png[str(self.year)][present_satellites_short_name][date_range_str] = output_filename_png
         self.registry.to_json()
+
+    def _prep_burnmask_containers(self,sat_combo):
+        try:
+            self.registry.processed_burnmasks[str(self.year)][sat_combo]
+        except:
+            self.registry.processed_burnmasks[str(self.year)][sat_combo] = {}
+        try:
+            self.registry.processed_burnmasks_gpkg[str(self.year)][sat_combo]
+        except:
+            self.registry.processed_burnmasks_gpkg[str(self.year)][sat_combo] = {}
+        try:
+            self.registry.processed_burnmasks_csv[str(self.year)][sat_combo]
+        except:
+            self.registry.processed_burnmasks_csv[str(self.year)][sat_combo] = {}
+        try:
+            self.registry.processed_burnmasks_png[str(self.year)][sat_combo]
+        except:
+            self.registry.processed_burnmasks_png[str(self.year)][sat_combo] = {}
 
     def _get_style(self):
         style_dict = style()
