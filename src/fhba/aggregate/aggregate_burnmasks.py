@@ -192,7 +192,7 @@ class SatelliteBurnmask:
 def _get_filedate(file):
     return re.findall(r'\d{4}-\d{2}-\d{2}',file)[0]
 
-def get_burn_area_by_county(burnmask_file,county_shp):
+def get_burn_area_by_county(burnmask_file,county_shp,include_total=False):
     """Compute burned area statistics per county from a burn mask GeoTIFF.
     
     Calculates area burned using Albers Equal-Area (EPSG:5070) projection. Includes 
@@ -256,14 +256,16 @@ def get_burn_area_by_county(burnmask_file,county_shp):
             total_km2_albers += km2_albers
             total_acres_albers += acres_albers
 
-        # Add total row
-        records.append({
-            'county_name': 'Total',
-            'burned_area_km2': round(total_km2_albers, 4),
-            'burned_area_acres': round(total_acres_albers, 1),
-        })
-
         # Create GeoDataFrame with geometries for counties and None for total
-        geometries = list(counties['geometry'].values) + [None]
-        gdf = gpd.GeoDataFrame(records, geometry=geometries, crs=counties.crs)
-        return gdf
+        geometries = list(counties['geometry'].values)
+
+        if include_total:
+            records.append({
+                'county_name': 'Total',
+                'burned_area_km2': round(total_km2_albers, 4),
+                'burned_area_acres': round(total_acres_albers, 1),
+            })
+
+            geometries += [None]
+            
+        return gpd.GeoDataFrame(records, geometry=geometries, crs=counties.crs)

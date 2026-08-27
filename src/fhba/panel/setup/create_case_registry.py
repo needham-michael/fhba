@@ -22,8 +22,9 @@ def create_case_registry(casename,path_data,path_output,bbox,dx,dy):
         path_processed = dataroot / "processed",
         path_usrpt = dataroot / "userpts",
         output_root = path_output,
-        path_burnmask = path_output / "burnmask",
+        path_burnmask = path_output / "burnmask_prelim",
         path_burnmask_final = path_output / "burnmask_final",
+        path_burnmask_seasonal = path_output / "burnmask_seasonal",
     )
 
     for k in fhba_dirs:

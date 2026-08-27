@@ -1,11 +1,21 @@
 from pathlib import Path
 from typing import Dict, Tuple
 
+import geopandas as gpd
 import geoviews as gv
 import numpy as np
 import xarray as xr
 
 from fhba.viz import nonlinear_enhancement
+
+def shp2gdf(shpfile: Path) -> gpd.GeoDataFrame:
+    try:
+        return gpd.read_file(shpfile)
+    except: 
+        # Search one level down in case the shapefile is stored in a subfolder
+        # like `/path/to/feature.shp/feature.shp`
+        shpfile = list(shpfile.glob("*.shp"))[0]
+        return gpd.read_file(shpfile)
 
 def shp2gv(shpfile: Path, display_opts: Dict | None = None) -> gv.Shape:
     if display_opts is None:
