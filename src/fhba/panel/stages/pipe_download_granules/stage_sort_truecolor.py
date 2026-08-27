@@ -52,7 +52,7 @@ class StageSortTruecolor(param.Parameterized):
         self._img_pane = pn.pane.Image(None,width=400,height=800,visible=True)
         self._preview_image_player = pn.widgets.DiscretePlayer(
             name="Date", 
-            options=list(self.granules.keys()), 
+            options=list(sorted(self.granules.keys())), 
             width=400,
             visible_buttons=['first', 'previous', 'next', 'last'],
             visible_loop_options=[],

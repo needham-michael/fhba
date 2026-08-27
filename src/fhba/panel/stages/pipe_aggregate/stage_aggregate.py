@@ -102,7 +102,18 @@ class StageAggregate(param.Parameterized):
             self.registry.processed_burnmasks[str(self.year)]
         except:
             self.registry.processed_burnmasks[str(self.year)] = defaultdict(list)
-
+        try:
+            self.registry.processed_burnmasks_gpkg[str(self.year)]
+        except:
+            self.registry.processed_burnmasks_gpkg[str(self.year)] = defaultdict(list)
+        try:
+            self.registry.processed_burnmasks_csv[str(self.year)]
+        except:
+            self.registry.processed_burnmasks_csv[str(self.year)] = defaultdict(list)
+        # try:
+        #     self.registry.processed_burnmasks_png[str(self.year)]
+        # except:
+        #     self.registry.processed_burnmasks_png[str(self.year)] = defaultdict(list)
 
     def _aggregate_burnmasks(self,event):
 
@@ -157,6 +168,9 @@ class StageAggregate(param.Parameterized):
 
         output_dir = self.registry.path_burnmask_seasonal / f"{self.year}" / present_satellites_short_name
         output_filename = output_dir / f"{self.registry.casename}_unified_burnmask_{date_range_str}.tif"
+        output_filename_gpkg = str(output_filename).replace(".tif",".gpkg")
+        output_filename_csv = str(output_filename).replace(".tif",".csv")
+        output_filename_png = str(output_filename).replace(".tif",".png")
         output_filename.parent.mkdir(parents=True,exist_ok=True)
 
         print(f"{output_filename = }")
@@ -174,13 +188,14 @@ class StageAggregate(param.Parameterized):
         )
 
         # Write burned area by county geodataframe to to GPKG (for GIS) and csv formats
-        burn_area_by_county.to_file(
-            str(output_filename).replace(".tif",".gpkg"),driver='GPKG')
-        burn_area_by_county.drop(columns='geometry').to_csv(
-            str(output_filename).replace(".tif",".csv"),index=False)
+        burn_area_by_county.to_file(output_filename_gpkg,driver='GPKG')
+        burn_area_by_county.drop(columns='geometry').to_csv(output_filename_csv,index=False)
 
         # Update registry
         self.registry.processed_burnmasks[str(self.year)][present_satellites_short_name].append(output_filename)
+        self.registry.processed_burnmasks_gpkg[str(self.year)][present_satellites_short_name].append(output_filename_gpkg)
+        self.registry.processed_burnmasks_csv[str(self.year)][present_satellites_short_name].append(output_filename_csv)
+        # self.registry.processed_burnmasks+png[str(self.year)][present_satellites_short_name].append(output_filename_png)
         self.registry.to_json()
 
     def _get_style(self):

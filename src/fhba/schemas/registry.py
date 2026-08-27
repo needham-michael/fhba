@@ -109,6 +109,9 @@ class Registry(BaseModel):
 
     # Processed burnmasks stored in a nested dict accessed by <year>, <satellite combo> | List[]
     processed_burnmasks: dict[str, dict[str, List]] = Field(default_factory={})
+    processed_burnmasks_csv: dict[str, dict[str, List]] = Field(default_factory={})
+    processed_burnmasks_gpkg: dict[str, dict[str, List]] = Field(default_factory={})
+    processed_burnmasks_png: dict[str, dict[str, List]] = Field(default_factory={})
 
     # Instrument Specifications
     sat_info: dict[str, SatelliteSpec] = None
