@@ -105,17 +105,17 @@ class Registry(BaseModel):
     json_filename: Path
 
     # Granule metadata stored in nested dict accessed by <year>, <satellite>, and <date>
-    granules: dict[str, dict[str, dict[str, GranuleManager]] ] | None = Field(default_factory={})
+    granules: Optional[dict[str, dict[str, dict[str, GranuleManager]] ]] | None = Field(default_factory=dict)
 
     # Processed burnmasks stored in a nested dict accessed by <year>, <satellite combo> , <date-range>
-    processed_burnmasks: dict[str, dict[str, dict]]  | None = Field(default_factory={})
-    processed_burnmasks_csv: dict[str, dict[str, dict]]  | None = Field(default_factory={})
-    processed_burnmasks_gpkg: dict[str, dict[str, dict]]  | None = Field(default_factory={})
-    processed_burnmasks_png: dict[str, dict[str, dict]]  | None = Field(default_factory={})
+    processed_burnmasks: Optional[dict[str, dict[str, dict]] ] = Field(default_factory=dict)
+    processed_burnmasks_csv: Optional[dict[str, dict[str, dict]] ] = Field(default_factory=dict)
+    processed_burnmasks_gpkg: Optional[dict[str, dict[str, dict]] ] = Field(default_factory=dict)
+    processed_burnmasks_png: Optional[dict[str, dict[str, dict]] ] = Field(default_factory=dict)
 
     # Instrument Specifications
     sat_info: dict[str, SatelliteSpec] = None
-    sat_band_defaults: dict[str, List] = Field(default_factory={})
+    sat_band_defaults: dict[str, List] = Field(default_factory=dict)
 
     classification_method_all: List[str] | None = ['eucl','svm','rforest']
     classification_method_defaults: List[str] | None = ['eucl','svm','rforest']

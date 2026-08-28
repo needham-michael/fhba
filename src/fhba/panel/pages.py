@@ -166,49 +166,54 @@ class PageSelectCase(param.Parameterized):
         self.ready = True
 
     def _click_new_case(self,event):
-        advance = True
-        self._newcase_loading_spinner.value = True
-        self._newcase_loading_spinner.name = "Verifying Inputs..."
+        try:
+            advance = True
+            self._newcase_loading_spinner.value = True
+            self._newcase_loading_spinner.name = "Verifying Inputs..."
 
-        self._verify_resolution()
+            self._verify_resolution()
 
-        if not self._newcase_resolution_valid:
-            msg = "Ensure a valid spatial resolution has been entered."
-            advance = False
-        if not self._newcase_data_dir_valid:
-            msg = "Ensure a valid data directory has been entered with `Validate Data Directory`"
-            advance = False
+            if not self._newcase_resolution_valid:
+                msg = "Ensure a valid spatial resolution has been entered."
+                advance = False
+            if not self._newcase_data_dir_valid:
+                msg = "Ensure a valid data directory has been entered with `Validate Data Directory`"
+                advance = False
 
-        if not self._newcase_output_dir_valid:
-            msg = "Ensure a valid output directory has been entered with `Validate Output Directory`"
-            advance = False
+            if not self._newcase_output_dir_valid:
+                msg = "Ensure a valid output directory has been entered with `Validate Output Directory`"
+                advance = False
 
-        if not self._newcase_bbox_valid:
-            msg = "Ensure a valid bounding box has been entered with `Validate Bounding Box`"
-            advance = False
+            if not self._newcase_bbox_valid:
+                msg = "Ensure a valid bounding box has been entered with `Validate Bounding Box`"
+                advance = False
 
-        if not advance:
-            pn.state.notifications.error(msg)
-            self._newcase_loading_spinner.value = False
-            self._newcase_loading_spinner.name = None
-            return
+            if not advance:
+                pn.state.notifications.error(msg)
+                self._newcase_loading_spinner.value = False
+                self._newcase_loading_spinner.name = None
+                return
 
-        _path_data = Path(self._newcase_data_dir_full)
-        _path_output = Path(self._newcase_output_dir_full)
-        _casename = _path_data.name
+            _path_data = Path(self._newcase_data_dir_full)
+            _path_output = Path(self._newcase_output_dir_full)
+            _casename = _path_data.name
 
-        os.makedirs(name=_path_data)
-        os.makedirs(name=_path_output)
-        
-        self._newcase_loading_spinner.name = "Creating Registry"
-        self._create_case_registry(_casename,_path_data,_path_output)
-        self._newcase_loading_spinner.name = "Resampling Landcover Mask"
-        self._create_case_landcover_mask(
-            registry=self._case_registry,nlcd_file_fullres=self._nlcd_file_fullres)
-        self._newcase_loading_spinner.name = "Saving New Case"
-        self._update_fhba_cases_json(_casename,_path_data)
-        pn.state.notifications.success(f"New Case Created: {_casename}")
-        self._existing_case_load_button_disabled = False
+            os.makedirs(name=_path_data)
+            os.makedirs(name=_path_output)
+            
+            self._newcase_loading_spinner.name = "Creating Registry"
+            self._create_case_registry(_casename,_path_data,_path_output)
+            self._newcase_loading_spinner.name = "Resampling Landcover Mask"
+            self._create_case_landcover_mask(
+                registry=self._case_registry,nlcd_file_fullres=self._nlcd_file_fullres)
+            self._newcase_loading_spinner.name = "Saving New Case"
+            self._update_fhba_cases_json(_casename,_path_data)
+            pn.state.notifications.success(f"New Case Created: {_casename}")
+            self._existing_case_load_button_disabled = False
+        except:
+            pn.state.notifications.error("Error creating new case")
+            shutil.rmtree(path=_path_data)
+            shutil.rmtree(path=_path_output)
 
         print(f"Updating Case Selector to include : {_casename}")
         self._existing_case_selector.options = [x for x in self._existing_case_selector.options if x is not None]
