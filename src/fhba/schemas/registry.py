@@ -105,13 +105,13 @@ class Registry(BaseModel):
     json_filename: Path
 
     # Granule metadata stored in nested dict accessed by <year>, <satellite>, and <date>
-    granules: dict[str, dict[str, dict[str, GranuleManager]] ] = Field(default_factory={})
+    granules: dict[str, dict[str, dict[str, GranuleManager]] ] | None = Field(default_factory={})
 
     # Processed burnmasks stored in a nested dict accessed by <year>, <satellite combo> , <date-range>
-    processed_burnmasks: dict[str, dict[str, dict]] = Field(default_factory={})
-    processed_burnmasks_csv: dict[str, dict[str, dict]] = Field(default_factory={})
-    processed_burnmasks_gpkg: dict[str, dict[str, dict]] = Field(default_factory={})
-    processed_burnmasks_png: dict[str, dict[str, dict]] = Field(default_factory={})
+    processed_burnmasks: dict[str, dict[str, dict]]  | None = Field(default_factory={})
+    processed_burnmasks_csv: dict[str, dict[str, dict]]  | None = Field(default_factory={})
+    processed_burnmasks_gpkg: dict[str, dict[str, dict]]  | None = Field(default_factory={})
+    processed_burnmasks_png: dict[str, dict[str, dict]]  | None = Field(default_factory={})
 
     # Instrument Specifications
     sat_info: dict[str, SatelliteSpec] = None
