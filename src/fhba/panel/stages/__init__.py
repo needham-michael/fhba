@@ -11,3 +11,4 @@ from fhba.panel.stages.pipe_process_granules.stage_process_granules import Stage
 from fhba.panel.stages.pipe_classify.stage_classify import StageClassifyUserpts as StageClassifyUserpts
 
 from fhba.panel.stages.pipe_aggregate.stage_aggregate import StageAggregate as StageAggregate
+from fhba.panel.stages.pipe_aggregate.stage_view_burnmasks import StageViewBurnmasks as StageViewBurnmasks

@@ -167,8 +167,9 @@ class StageAggregate(param.Parameterized):
             return 
 
         present_satellites = list(subset_burnmasks.columns)
-        present_satellites_short_name = "-".join(
-            [self.registry.sat_info[sat].abbreviation for sat in present_satellites])
+        # Ensure satellite are joined alphabetically
+        present_satellites_short_name_list = [self.registry.sat_info[sat].abbreviation for sat in present_satellites]
+        present_satellites_short_name = "-".join(sorted(present_satellites_short_name_list)) 
 
         self._prep_burnmask_containers(sat_combo=present_satellites_short_name)
         

@@ -19,7 +19,8 @@ from fhba.panel.instructions import Instructions
 
 from fhba.panel.stages import (
     StageSelectInstrument, StageDownloadWorldview, StageSortTruecolor, StageDownloadGranules,
-    StageSelectBlendMethod, StageProcessGranules, StageClassifyUserpts, StageSelectYear, StageAggregate
+    StageSelectBlendMethod, StageProcessGranules, StageClassifyUserpts, StageSelectYear, 
+    StageAggregate, StageViewBurnmasks
     )
 
 
@@ -466,6 +467,7 @@ class PageAnalysisPipeline(param.Parameterized):
             stages=[
                 ('Select',StageSelectYear(registry=self._json2reg(return_obj=True))),
                 ('Aggregate Burnmasks',StageAggregate),
+                ('View Burnmasks',StageViewBurnmasks),
             ],
             debug=True,ready_parameter='ready'
         )
