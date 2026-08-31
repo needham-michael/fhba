@@ -23,7 +23,8 @@ class StageViewBurnmasks(param.Parameterized):
             ),
             pn.Column(
                 self._date_slider,
-                self._img_pane
+                self._img_pane,
+                self._img_pane_path
             )
         )
 
@@ -38,6 +39,7 @@ class StageViewBurnmasks(param.Parameterized):
         )
 
         self._img_pane = pn.pane.Image(None,width=800,height=600,visible=True)
+        self._img_pane_path = pn.pane.Markdown()
 
         self._date_slider.param.watch(self._update_image,"value")
         
@@ -89,8 +91,10 @@ class StageViewBurnmasks(param.Parameterized):
         img_path = self.registry.processed_burnmasks_png[str(self.year)][self.sat_combo][key]
         if img_path is not None and os.path.exists(img_path):
             self._img_pane.object = img_path
+            self._img_pane_path.object =  f"Image stored at: `{img_path}`"
         else:
             self._img_pane.object = "https://www.kgs.ku.edu/Publications/OFR/2012/OFR12_6/Flint_Hills_Ecoregion.jpg"
+            self._img_pane_path.object = ""
 
     def __panel__(self):
         return self.panel()
