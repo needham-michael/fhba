@@ -1,0 +1,14 @@
+from fhba.panel.stages.stage_select_instrument import StageSelectInstrument as StageSelectInstrument
+from fhba.panel.stages.stage_select_year import StageSelectYear as StageSelectYear
+
+from fhba.panel.stages.pipe_download_granules.stage_download_worldview import StageDownloadWorldview as StageDownloadWorldview
+from fhba.panel.stages.pipe_download_granules.stage_sort_truecolor import StageSortTruecolor as StageSortTruecolor
+from fhba.panel.stages.pipe_download_granules.stage_download_granules import StageDownloadGranules as StageDownloadGranules
+
+from fhba.panel.stages.pipe_process_granules.stage_select_blend_method import StageSelectBlendMethod as StageSelectBlendMethod
+from fhba.panel.stages.pipe_process_granules.stage_process_granules import StageProcessGranules as StageProcessGranules
+
+from fhba.panel.stages.pipe_classify.stage_classify import StageClassifyUserpts as StageClassifyUserpts
+
+from fhba.panel.stages.pipe_aggregate.stage_aggregate import StageAggregate as StageAggregate
+from fhba.panel.stages.pipe_aggregate.stage_view_burnmasks import StageViewBurnmasks as StageViewBurnmasks

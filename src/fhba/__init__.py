@@ -1,2 +1,3 @@
-def hello() -> str:
-    return "Hello from fhba!"
+import importlib.metadata
+
+__version__ = importlib.metadata.version('fhba')
