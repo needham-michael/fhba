@@ -63,7 +63,7 @@ class PaneUserAnnotate(param.Parameterized):
             )
         )
 
-        self._maptiles = gv.tile_sources.CartoLight.opts(
+        self._maptiles = gv.tile_sources.EsriWorldLightGrayBase.opts(
             xlim=(self.registry.epsg_extent[0],self.registry.epsg_extent[2]),
             ylim=(self.registry.epsg_extent[1],self.registry.epsg_extent[3]),
             )

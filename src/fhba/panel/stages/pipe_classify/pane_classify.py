@@ -102,7 +102,7 @@ class PaneClassifyPixels(param.Parameterized):
             )
         )       
 
-        self._maptiles = gv.tile_sources.CartoLight.opts(
+        self._maptiles = gv.tile_sources.EsriWorldLightGrayBase.opts(
             xlim=(self.registry.epsg_extent[0],self.registry.epsg_extent[2]),
             ylim=(self.registry.epsg_extent[1],self.registry.epsg_extent[3]),
             )
@@ -131,7 +131,7 @@ class PaneClassifyPixels(param.Parameterized):
         daily_mask = self._lcmask * self._cloudmask
 
         for method in self.classification_methods:
-            print(f"{method = }")
+            pn.state.notifications.info(f"Applying Method: {method}")
             self._burnmask[method], self._burnmask_conf[method] = classify_pixels(
                 ds = self._selected_ds, userpts = self._selected_userpts, method = method, 
             )
@@ -290,8 +290,6 @@ class PaneClassifyPixels(param.Parameterized):
         self._selected_ds = xr.open_dataset(granule_manager.files.reproj_granule)
         self._selected_ds = self._selected_ds.load()
         self._selected_ds.attrs['crs'] = ccrs.epsg(self.registry.epsg)
-        # self._classify_ds = self._selected_ds[[x for x in self._selected_ds.data_vars if x in self.sat_band_subset]]
-        print(f"{self._selected_ds = }")
 
         if self._lcmask is None:
             self._lcmask = rxr.open_rasterio(self.registry.path_lmask).squeeze().rename("lcmask")
@@ -322,13 +320,12 @@ class PaneClassifyPixels(param.Parameterized):
         self._merged_burnmask = xr.zeros_like(self._prelim_burnmask_ds[self.classification_methods[0]])
 
         for m in self.classification_methods:
-            print(f"Merging {m = }")
             self._merged_burnmask += self._prelim_burnmask_ds[m]
 
     def _apply_majority_voting(self):
         n_methods = len(self.classification_methods)
         thr = (n_methods // 2) + 1
-        print(f"Applying Voting Threshold: {thr = }")
+        pn.state.notifications.info(f"Applying Voting Threshold: {thr} / {n_methods}")
 
         self._merged_burnmask = (self._merged_burnmask >= thr).astype(int)
 
