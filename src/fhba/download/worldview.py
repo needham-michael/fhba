@@ -4,7 +4,7 @@ import requests
 def download_worldview(date,bbox,out_path,overwrite=False,truecolor=True,satellite_name="Suomi-NPP"):
     if os.path.exists(out_path) and not overwrite:
         print("True color image already exists.")
-        return False, out_path
+        return True, out_path
 
     valid_sat_name = {
             'Suomi-NPP':'VIIRS_SNPP',
