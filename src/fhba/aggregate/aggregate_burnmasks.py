@@ -52,6 +52,8 @@ class UnifiedBurnmask:
         self.burnmask_dates = list(burnmask_dates.strftime("%Y-%m-%d"))
 
     def _get_geotiff_reference_file(self):
+        print("!!! ")
+        print(f"{self.satellite_burnmasks = }")
         bm = self.satellite_burnmasks[0]
         ref_file = next(iter(next(iter(bm.burnmasks.values())).values()))
         self.geotiff_reference_file = ref_file
