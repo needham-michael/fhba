@@ -58,6 +58,7 @@ class PaneClassifyPixels(param.Parameterized):
     def _assign_date(self,date):
         self._selected_date = date
         self._selected_granule = self.granules[self._selected_date]
+        self._classify_pixels_pane.object = self._maptiles * self._county_overlay
         self._classify_pixels_pane_title.object = f"## {self.satellite} | {self._selected_date} | Burnmask"
         self._load_button.disabled = not self._selected_granule.is_classified
         self._qa_button.disabled = not self._selected_granule.is_classified
