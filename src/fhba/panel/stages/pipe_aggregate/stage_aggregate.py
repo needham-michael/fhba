@@ -147,7 +147,7 @@ class StageAggregate(param.Parameterized):
             return
         
         d0 = burnmasks_in_daterange.index[0].strftime("%Y-%m-%d")
-        for d in burnmasks_in_daterange.index.strftime("%Y-%m-%d"):
+        for d in self._progress_bar(burnmasks_in_daterange.index.strftime("%Y-%m-%d")):
             self._get_burnmask_from_daterange(
                 start_date=d0,end_date=d,burnmasks_in_daterange=burnmasks_in_daterange)
 
