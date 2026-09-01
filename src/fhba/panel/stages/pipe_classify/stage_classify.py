@@ -119,9 +119,11 @@ class StageClassifyUserpts(param.Parameterized):
         self._selected_date = self._date_selector.value
         self._selected_composite = self._composite_selector.value
         pn.state.notifications.info(f"Loading {self._selected_composite} Composite for date: {self._selected_date}")     
-        self._pane_user_annotate._load_img(event,date=self._selected_date,composite=self._selected_composite)
-        self._pane_classify_pixels._assign_date(date=self._date_selector.value)
-        self._layout.objects = [self._custom_tabs['MappingPane']]
+
+        _status = self._pane_user_annotate._load_img(event,date=self._selected_date,composite=self._selected_composite)
+        if _status:
+            self._pane_classify_pixels._assign_date(date=self._date_selector.value)
+            self._layout.objects = [self._custom_tabs['MappingPane']]
         self._loading_icon.value = False
 
     def _click_back(self,event):
