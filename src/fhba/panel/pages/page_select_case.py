@@ -57,7 +57,10 @@ class PageSelectCase(param.Parameterized):
                 self._newcase_data_dir_printout,
                 pn.layout.Divider(),
                 pn.Row(
-                    self._newcase_output_dir_input,
+                    pn.Column(
+                        self._newcase_output_dir_input,
+                        self._newcase_checkbox_samedir,
+                    ),
                     self._newcase_button_output_dir_valid,
                 ),
                 self._newcase_output_dir_printout,
@@ -116,12 +119,15 @@ class PageSelectCase(param.Parameterized):
         self._newcase_button_data_dir_valid = pn.widgets.Button(
             label="Validate Data Directory",on_click=self._verify_data_dir,**self.button_primary)
         #---
+        self._newcase_checkbox_samedir = pn.widgets.Checkbox(
+            label="Same as Data Directory",value=False)
         self._newcase_output_dir_input = pn.widgets.TextInput(
-            label="New Case Output Directory",value="")
+            label="New Case Output Directory",value="",disabled=pn.bind(lambda x: x, self._newcase_checkbox_samedir))
         self._newcase_output_dir_printout = pn.pane.Markdown(
             f"Project output will be stored in directory:\n__MUST VALIDATE OUTPUT DIRECTORY__",hard_line_break=True)
         self._newcase_button_output_dir_valid = pn.widgets.Button(
-            label="Validate Output Directory",on_click=self._verify_output_dir,**self.button_primary)
+            label="Validate Output Directory",on_click=self._verify_output_dir,**self.button_primary,
+            disabled=pn.bind(lambda x: x, self._newcase_checkbox_samedir))
         self._newcase_button_create = pn.widgets.Button(
             label="Create New Case",on_click=self._click_new_case,**self.button_success)
         self.gv_map = pn.pane.HoloViews(gv.tile_sources.OSM().opts(title="New Case Bounding Box"),width=400,height=400)
@@ -156,6 +162,7 @@ class PageSelectCase(param.Parameterized):
         self.ready = True
 
     def _click_new_case(self,event):
+
         try:
             advance = True
             self._newcase_loading_spinner.value = True
@@ -171,12 +178,19 @@ class PageSelectCase(param.Parameterized):
                 advance = False
 
             if not self._newcase_output_dir_valid:
-                msg = "Ensure a valid output directory has been entered with `Validate Output Directory`"
-                advance = False
+                if not self._newcase_checkbox_samedir.value:
+                    msg = "Ensure a valid output directory has been entered with `Validate Output Directory`"
+                    advance = False
+                else:
+                    self._newcase_output_dir_full = self._newcase_data_dir_full
 
             if not self._newcase_bbox_valid:
                 msg = "Ensure a valid bounding box has been entered with `Validate Bounding Box`"
                 advance = False
+            
+            _path_data = Path(self._newcase_data_dir_full)
+            _path_output = Path(self._newcase_output_dir_full)
+            _casename = _path_data.name
 
             if not advance:
                 pn.state.notifications.error(msg)
@@ -184,12 +198,9 @@ class PageSelectCase(param.Parameterized):
                 self._newcase_loading_spinner.name = None
                 return
 
-            _path_data = Path(self._newcase_data_dir_full)
-            _path_output = Path(self._newcase_output_dir_full)
-            _casename = _path_data.name
-
             os.makedirs(name=_path_data)
-            os.makedirs(name=_path_output)
+            if not self._newcase_checkbox_samedir.value:
+                os.makedirs(name=_path_output)
             
             self._newcase_loading_spinner.name = "Creating Registry"
             self._create_case_registry(_casename,_path_data,_path_output)
