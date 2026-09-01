@@ -200,7 +200,10 @@ class PageSelectCase(param.Parameterized):
 
             os.makedirs(name=_path_data)
             if not self._newcase_checkbox_samedir.value:
-                os.makedirs(name=_path_output)
+                if not _path_output == _path_data:
+                    os.makedirs(name=_path_output)
+                else:
+                    print("Data and Output Directories Identical. Skipping Creation.")
             
             self._newcase_loading_spinner.name = "Creating Registry"
             self._create_case_registry(_casename,_path_data,_path_output)
