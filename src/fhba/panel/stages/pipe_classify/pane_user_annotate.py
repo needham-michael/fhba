@@ -91,13 +91,19 @@ class PaneUserAnnotate(param.Parameterized):
 
         self._hvrgb = None
         if self.sat_info.instrument == 'viirs':
-            self._hvrgb = self._load_img_viirs(
+            msg, self._hvrgb = self._load_img_viirs(
                 date=self._selected_date,
                 composite=self._selected_composite
                 )
-        else:
-            raise NotImplementedError(f"Implement RGB Composite for {self.sat_info.instrument}")
 
+            if not self._hvrgb:
+                pn.state.notifications.warning(msg)
+                return False # Do not proceed to next pane
+            
+        else:
+            pn.state.notifications.error(f"Need to implement RGB Composite for {self.sat_info.instrument}")
+            return False # Do not proceed to next pane
+        
         if self._hvrgb is not None:
             self._brn_point_stream.source = self._brn_points
             self._unb_point_stream.source = self._unb_points
@@ -107,9 +113,10 @@ class PaneUserAnnotate(param.Parameterized):
             
             self._user_annotate_pane.object = self._maptiles * self._hvrgb * self._county_overlay * self._classification_overlay
         self._user_select_widgets.disabled = False
+        return True
 
     @lru_cache(maxsize=3)
-    def _load_img_viirs(self,date,composite):
+    def _load_img_viirs(self,date,composite) -> Tuple[str, gv.element.geo.RGB | None]:
         granule_manager = self.granules[date]
         _viirs_band_names = {
             'nir_band':"I01",

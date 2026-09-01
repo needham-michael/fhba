@@ -33,25 +33,33 @@ def nir_red_sqrt(
     nir_band : str,
     red_band : str,
     **kwargs
-) -> gv.element.geo.RGB:
+) -> Tuple[str, gv.element.geo.RGB | None]:
+    required = {nir_band,red_band}
+    missing = required - set(ds.data_vars)
+    if missing:
+        return f"Dataset missing required bands: {missing}", None
 
     red = nonlinear_enhancement(255 * ds[red_band].values / 100) / 255
     nir = nonlinear_enhancement(255 * ds[nir_band].values / 100) / 255
     sqrt = np.sqrt(red * nir)
 
-    return ds2rgb(ds,band_list=[nir,red,sqrt])
+    return "", ds2rgb(ds,band_list=[nir,red,sqrt])
 
 def nir_red_red(
     ds: xr.Dataset,
     nir_band : str,
     red_band : str,
     **kwargs
-) -> gv.element.geo.RGB:
+) -> Tuple[str, gv.element.geo.RGB | None]:
+    required = {nir_band,red_band}
+    missing = required - set(ds.data_vars)
+    if missing:
+        return f"Dataset missing required bands: {missing}", None
 
     red = nonlinear_enhancement(255 * ds[red_band].values / 100) / 255
     nir = nonlinear_enhancement(255 * ds[nir_band].values / 100) / 255
 
-    return ds2rgb(ds,band_list=[nir,red,red])
+    return "", ds2rgb(ds,band_list=[nir,red,red])
 
 def nir_red_mwir(
     ds: xr.Dataset,
@@ -59,13 +67,17 @@ def nir_red_mwir(
     red_band : str,
     mwir_band : str,
     **kwargs
-) -> gv.element.geo.RGB:
+) -> Tuple[str, gv.element.geo.RGB | None]:
+    required = {nir_band,red_band,mwir_band}
+    missing = required - set(ds.data_vars)
+    if missing:
+        return f"Dataset missing required bands: {missing}", None
 
     red = nonlinear_enhancement(255 * ds[red_band].values / 100) / 255
     nir = nonlinear_enhancement(255 * ds[nir_band].values / 100) / 255
     mwir = nonlinear_enhancement(255 * ds[mwir_band].values / 100) / 255
 
-    return ds2rgb(ds,band_list=[mwir,red,nir])
+    return "", ds2rgb(ds,band_list=[mwir,red,nir])
     
 def ds2rgb(
     ds: xr.Dataset,
