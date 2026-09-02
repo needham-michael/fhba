@@ -94,9 +94,7 @@ class GranuleManager(BaseModel):
                 all(p.exists() for p in self.files.raw_refl_granule) and 
                 all(p.exists() for p in self.files.raw_cmsk_granule)
             ):
-                self.is_downloaded = False
-                self.is_retained = False
-
+                
                 for p in self.files.raw_refl_granule:
                     if not p.exists():
                         missing_files['raw_refl_granule'].append(p)
@@ -106,22 +104,19 @@ class GranuleManager(BaseModel):
 
         if self.is_processed:
             if not self.files.reproj_granule.exists():
-                self.is_processed = False
                 missing_files['reproj_granule'] = self.files.reproj_granule
         if self.is_user_categorized:
             if not self.files.user_pts.exists():
-                self.is_user_categorized = False
                 missing_files['user_pts'] = self.files.user_pts
         if self.is_classified:
             if not self.files.burnmask_prelim.exists():
-                self.is_classified = False
                 missing_files['burnmask_prelim'] = self.files.burnmask_prelim
         if self.is_finalized:
             if not self.files.burnmask_final.exists():
-                self.is_finalized = False
                 missing_files['burnmask_final'] = self.files.burnmask_final
 
         return dict(missing_files)
+
     
 class Registry(BaseModel):
     """Case registry to maintain complete collection of metadata for case"""
@@ -176,7 +171,27 @@ class Registry(BaseModel):
                         audit.append(
                             {'year':year,'sat':sat,'date':date} | missing_files
                             )
-        return audit
+        self._audited_files = audit
+
+    def reset_missing(self):
+        import pandas as pd
+        _df = pd.DataFrame(self._audited_files)
+        file2flag = { # Mapping of missing file type to correct flag
+            'raw_refl_granule':'is_downloaded',
+            'raw_cmsk_granule':'is_downloaded',
+            'reproj_granule':'is_processed',
+            'user_pts':'is_user_categorized',
+            'burnmask_prelim':'is_classified',
+            'burnmask_final':'is_finalized', 
+        }
+
+        missing_data_columns = [x for x in file2flag.keys() if x in _df.columns]
+        for col in missing_data_columns:
+            flag = file2flag[col]
+
+            for row in _df[['year','sat','date',col]].dropna().itertuples():
+                gm = self.granules[str(row.year)][row.sat][row.date]
+                setattr(gm,flag,False)
 
     def to_json(self) -> None:
         with open(self.json_filename,"w",encoding='utf-8') as f:
