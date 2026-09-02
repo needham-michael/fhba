@@ -97,23 +97,23 @@ class GranuleManager(BaseModel):
                 
                 for p in self.files.raw_refl_granule:
                     if not p.exists():
-                        missing_files['raw_refl_granule'].append(p)
+                        missing_files['raw_refl_granule'].append(str(p))
                 for p in self.files.raw_cmsk_granule:
                     if not p.exists():
-                        missing_files['raw_cmsk_granule'].append(p)
+                        missing_files['raw_cmsk_granule'].append(str(p))
 
         if self.is_processed:
             if not self.files.reproj_granule.exists():
-                missing_files['reproj_granule'] = self.files.reproj_granule
+                missing_files['reproj_granule'] = str(self.files.reproj_granule)
         if self.is_user_categorized:
             if not self.files.user_pts.exists():
-                missing_files['user_pts'] = self.files.user_pts
+                missing_files['user_pts'] = str(self.files.user_pts)
         if self.is_classified:
             if not self.files.burnmask_prelim.exists():
-                missing_files['burnmask_prelim'] = self.files.burnmask_prelim
+                missing_files['burnmask_prelim'] = str(self.files.burnmask_prelim)
         if self.is_finalized:
             if not self.files.burnmask_final.exists():
-                missing_files['burnmask_final'] = self.files.burnmask_final
+                missing_files['burnmask_final'] = str(self.files.burnmask_final)
 
         return dict(missing_files)
 
