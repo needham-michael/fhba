@@ -1,5 +1,6 @@
 import datetime
 import json
+from collections import defaultdict
 from pathlib import Path
 from typing import List, Literal, Optional, Tuple, Union, Dict
 
@@ -84,6 +85,43 @@ class GranuleManager(BaseModel):
 
     def __str__(self):
         return f"[{self.satellite} GranuleManager {self.date.strftime('%Y-%m-%d')}]"
+
+    def audit_files(self) -> Dict:
+        """Verify files present for each status flag"""
+        missing_files = defaultdict(list)
+        if self.is_downloaded:
+            if not (
+                all(p.exists() for p in self.files.raw_refl_granule) and 
+                all(p.exists() for p in self.files.raw_cmsk_granule)
+            ):
+                self.is_downloaded = False
+                self.is_retained = False
+
+                for p in self.files.raw_refl_granule:
+                    if not p.exists():
+                        missing_files['raw_refl_granule'].append(p)
+                for p in self.files.raw_cmsk_granule:
+                    if not p.exists():
+                        missing_files['raw_cmsk_granule'].append(p)
+
+        if self.is_processed:
+            if not self.files.reproj_granule.exists():
+                self.is_processed = False
+                missing_files['reproj_granule'] = self.files.reproj_granule
+        if self.is_user_categorized:
+            if not self.files.user_pts.exists():
+                self.is_user_categorized = False
+                missing_files['user_pts'] = self.files.user_pts
+        if self.is_classified:
+            if not self.files.burnmask_prelim.exists():
+                self.is_classified = False
+                missing_files['burnmask_prelim'] = self.files.burnmask_prelim
+        if self.is_finalized:
+            if not self.files.burnmask_final.exists():
+                self.is_finalized = False
+                missing_files['burnmask_final'] = self.files.burnmask_final
+
+        return dict(missing_files)
     
 class Registry(BaseModel):
     """Case registry to maintain complete collection of metadata for case"""
@@ -127,16 +165,18 @@ class Registry(BaseModel):
     epsg_units: str = "meters"
     epsg_extent: Tuple[float,float,float,float] | None = None
 
-    # def define_satpy_area_def(self, width: int = 500, height: int = 1000):
-    #     import warnings
-    #     warnings.warn("Using hardcoded parameters for registry.satpy_area_def")
-    #     warnings.warn("Projection set to Web Mercator (EPSG:3857) for registry.satpy_area_def.")
-    #     if self.spatial is None:
-    #         self.spatial = (self.app_config.min_lon, self.app_config.min_lat, self.app_config.max_lon, self.app_config.max_lat)
-    #     self.area_def_spec = AreaDefSpec(
-    #         projection=3857, width=width, height=height, area_extent=self.spatial, units="degrees"
-    #     )
-    #     self._satpy_area_def = self.area_def_spec.to_pyresample()
+    def audit_granules(self) -> Dict:
+        """Verify files present for each granule"""
+        audit = []
+        for year in self.granules.keys():
+            for sat in self.granules[year].keys():
+                for date in self.granules[year][sat].keys():
+                    missing_files = self.granules[year][sat][date].audit_files()
+                    if missing_files:
+                        audit.append(
+                            {'year':year,'sat':sat,'date':date} | missing_files
+                            )
+        return audit
 
     def to_json(self) -> None:
         with open(self.json_filename,"w",encoding='utf-8') as f:
