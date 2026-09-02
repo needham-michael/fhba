@@ -5,7 +5,7 @@ import panel as pn
 import param
 
 from fhba.schemas import GranuleManager, FileMetadata
-from fhba.panel.utils import style
+from fhba.panel.utils import style, get_valid_dates
 from fhba.download.worldview import download_worldview
 
 class StageDownloadWorldview(param.Parameterized):
@@ -33,6 +33,8 @@ class StageDownloadWorldview(param.Parameterized):
         ),title=f"Satellite: {self.satellite_full}; Year: {self.year}",**self.card)
 
     def _setup(self):
+        print(f"_setup {self.year = }")
+        self._get_valid_dates()
         self._default_start_date = pd.to_datetime(f"{self.year}-02-15")
         self._default_end_date = pd.to_datetime(f"{self.year}-05-15")
         self._today = pd.to_datetime(datetime.now())
@@ -44,6 +46,8 @@ class StageDownloadWorldview(param.Parameterized):
             self._default_start_date = pd.to_datetime(self.valid_min_date)
 
         _value = (self._default_start_date,self._default_end_date)
+        
+        print(f"_setup {_value = }")
 
         self._download_image_button = pn.widgets.Button(
             name="Download Preview Images",on_click=self._download_images,**self.button_primary)
@@ -110,6 +114,9 @@ class StageDownloadWorldview(param.Parameterized):
         # Update the registry and serialize to json
         self.registry.granules = granules
         self.registry.to_json()
+
+    def _get_valid_dates(self):
+        self.valid_min_date, self.valid_max_date = get_valid_dates(year=self.year)
         
     def _get_style(self):
         style_dict = style()
