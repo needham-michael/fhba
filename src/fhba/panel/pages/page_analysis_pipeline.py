@@ -8,6 +8,7 @@ from pathlib import Path
 import cartopy.crs as ccrs
 import geoviews as gv
 import numpy as np
+import pandas as pd
 import panel as pn
 import param
 
@@ -43,13 +44,15 @@ class PageAnalysisPipeline(param.Parameterized):
         self._layout_tabs = pn.Tabs(
             ("Case Info",pn.Column(
                 self._refresh_json,self._json_viewer,)),
+            ("Missing Files",pn.Card(
+                self._reset_missing_files_btn,self._missing_files_json,**self.card)),
             ("Instructions",Instructions),
             ("1. Download Granules", self._pipeline_download_layout),
             ("2. Process Granules", self._pipeline_process_layout),
             ("3. Classify Granules", self._pipeline_classify_layout),
             ("4. Aggregate Burnmasks", self._pipeline_aggregate_layout),
             dynamic=True,
-            active=1,
+            active=2,
         )
 
         self._layout = pn.Card(pn.Column(
@@ -61,12 +64,17 @@ class PageAnalysisPipeline(param.Parameterized):
     def _setup(self):
         # Navigation Buttons
         self.back    = pn.widgets.Button(name="Back to Case Selection",**self.button_warning)
-        self._refresh_json = pn.widgets.Button(name="Refresh Case Info",on_click=self._refresh_case_info,**self.button_success)
         self.back.on_click(lambda e: self._advance("Start"))
+
+        
+        self._refresh_json = pn.widgets.Button(name="Refresh Case Info",on_click=self._refresh_case_info,**self.button_success)
+        self._reset_missing_files_btn = pn.widgets.Button(name="Reset Missing Files",on_click=self._reset_missing_files,**self.button_warning)
 
         self._json2cases()
         self._json_registry_filename = self._fhba_cases.cases[self.selected_casename] / f"fhba_{self.selected_casename}.json"
         self._json2reg()
+        self._reg.audit_granules()
+        self._missing_files_json = pn.pane.JSON(self._reg._audited_files,depth=-1)
 
         self._json_viewer = pn.widgets.JSONEditor(
             value=self._reg.model_dump(mode='json'),selection=[],mode='view',
@@ -77,6 +85,15 @@ class PageAnalysisPipeline(param.Parameterized):
         self._build_pipeline_process()
         self._build_pipeline_classify()
         self._build_pipeline_aggregate()
+
+    def _reset_missing_files(self,event):
+        self._json2reg()
+        self._reg.audit_granules()
+        self._reg.reset_missing()
+        self._reg.audit_granules()
+        self._missing_files_json.object = self._reg._audited_files
+        self._reg.to_json()
+        pn.state.notifications.success("Missing Files Removed from Registry.")
 
     def _refresh_case_info(self,event):
         self._json2reg()
