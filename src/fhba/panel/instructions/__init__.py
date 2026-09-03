@@ -1,1 +1,0 @@
-from fhba.panel.instructions.instructions import Instructions as Instructions
