@@ -9,6 +9,9 @@ _scratch*
 _*/
 _tmp*
 
+# Rendered HTML
+site/
+
 
 # local credential files
 *.dodsrc

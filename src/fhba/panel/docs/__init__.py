@@ -1,0 +1,1 @@
+from fhba.panel.docs.docs_pane import DocsPane as DocsPane
