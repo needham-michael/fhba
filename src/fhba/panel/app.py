@@ -7,6 +7,7 @@ gv.extension("bokeh")
 
 from fhba.panel.setup import VersionInfo
 from fhba.panel.pages import PageSelectCase, PageAnalysisPipeline
+from fhba.panel.docs import DocsPane
 
 pn.extension("ace",'tabulator','terminal','modal',"jsoneditor",'floatpanel')
 pn.extension(notifications=True)
@@ -68,12 +69,15 @@ def build_app():
 
 
     app = pn.template.MaterialTemplate(
+        sidebar=DocsPane()._layout,
         main=[
             VersionInfo()._layout,
             AppPages()._layout,
         ],
         header_background=header_background,
-        title = app_title
+        title = app_title,
+        collapsed_sidebar=True,
+        sidebar_width=275
     )
         
     return app
