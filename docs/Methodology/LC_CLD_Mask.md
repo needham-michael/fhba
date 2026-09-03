@@ -1,0 +1,1 @@
+# Landcover and Daily Cloud Masking
