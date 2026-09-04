@@ -6,7 +6,7 @@ import panel as pn
 import param
 
 from fhba.panel.utils import style
-from fhba.reproject import create_target_area_def, reproject_viirs
+from fhba.reproject import create_target_area_def, reproject_viirs, reproject_modis
 
 class StageReprojectGranules(param.Parameterized):
  
@@ -178,24 +178,24 @@ class StageReprojectGranules(param.Parameterized):
         return granule_manager
 
     def _reproject(self,reproj_filename,granule_manager,target_area_def,blend_method):
+        print(f"{self.sat_info.instrument = }")
         if self.sat_info.instrument == 'viirs':
-            granule_manager, msg = self._reproject_viirs(
-                reproj_filename,granule_manager,target_area_def,blend_method)
+            _cmsk_band_list=['Clear_Sky_Confidence']
+            _reproj_fn = reproject_viirs
+        elif self.sat_info.instrument == 'modis':
+            _cmsk_band_list=['cloud_mask']
+            _reproj_fn = reproject_modis
         else:
             raise NotImplementedError(f"Reprojecting {self.sat_info.instrument} not implemented.")
 
-        return granule_manager, msg
-
-    def _reproject_viirs(self,reproj_filename,granule_manager,target_area_def,blend_method):
-
         self._terminal.write(f"Reprojecting Granules...\n")
         self._terminal.write(f"Blending Method {blend_method} Not Yet Implemented\n")
-        
-        scene = reproject_viirs(
+
+        scene = _reproj_fn(
             raw_refl_granule=granule_manager.files.raw_refl_granule,
             raw_cmsk_granule=granule_manager.files.raw_cmsk_granule,
             refl_band_list=self.sat_band_subset,
-            cmsk_band_list=['Clear_Sky_Confidence'],
+            cmsk_band_list=_cmsk_band_list,
             target_area_def=target_area_def,
             # blend_method=blend_method
         )
