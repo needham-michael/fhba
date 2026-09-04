@@ -8,7 +8,7 @@ import param
 from fhba.panel.utils import style
 from fhba.reproject import create_target_area_def, reproject_viirs
 
-class StageProcessGranules(param.Parameterized):
+class StageReprojectGranules(param.Parameterized):
  
     year = param.Integer()
     satellite_full = param.String()
@@ -44,35 +44,35 @@ class StageProcessGranules(param.Parameterized):
 
     def _setup(self):
         self._build_table_pane()
-        self._build_processing_pane()      
+        self._build_reproj_pane()      
 
     def _build_table_pane(self):
-        """Build a table showing basic info regarding granule processing
+        """Build a table showing basic info regarding granule reproj
         
-        Table has columns for: date, blend_method, and processing status
+        Table has columns for: date, blend_method, and reproj status
         """
         date_col = list(self.granules.keys())
         date_col = [d for d in date_col if self.granules[d].is_downloaded]
         blnd_col = [self.granules[d].blend_method for d in date_col]
         proc_col = [self.granules[d].is_processed for d in date_col]
 
-        self._processing_df = pd.DataFrame(data={
+        self._reproj_df = pd.DataFrame(data={
             'date':date_col,
             'Blending Method':blnd_col,
             'Processed?':proc_col
         })
         
-        self._table = pn.widgets.Tabulator(self._processing_df, height=600, show_index=False)
+        self._table = pn.widgets.Tabulator(self._reproj_df, height=600, show_index=False)
         self._table_layout = pn.Column(
-            pn.pane.Markdown("### Granule Processing Status"),
+            pn.pane.Markdown("### Granule Reprojection Status"),
             self._table
         )
 
-    def _build_processing_pane(self):
+    def _build_reproj_pane(self):
         self._process_button = pn.widgets.Button(
-            name="Process Granules", **self.button_primary,on_click=self._process_granules)
-        self._processing_range_selector = pn.widgets.DateRangePicker(
-            name='Processing Range',enabled_dates=list(pd.date_range(
+            name="Reproject Granules", **self.button_primary,on_click=self._process_granules)
+        self._reproj_range_selector = pn.widgets.DateRangePicker(
+            name='Reprojection Date Range',enabled_dates=list(pd.date_range(
             start=self.valid_min_date, end=self.valid_max_date,freq='D').strftime("%Y-%m-%d")),)
         self._str_out = pn.pane.Str(None, width=400)
         self._progress_bar = pn.widgets.Tqdm()
@@ -81,13 +81,13 @@ class StageProcessGranules(param.Parameterized):
         self._overwrite_checkbox = pn.widgets.Checkbox(label='Overwrite',value=False)
 
         self._download_layout = pn.Column(
-            pn.pane.Markdown("### Process Granules"),
-            self._processing_range_selector,
+            pn.pane.Markdown("### Reproject Granules"),
+            self._reproj_range_selector,
             pn.Row(self._process_button,self._loading_icon),
             self._overwrite_checkbox,
             self._progress_bar,
             self._str_out,
-            pn.pane.Markdown("### Download Log"),
+            pn.pane.Markdown("### Reprojection Log"),
             self._terminal,
             # margin=(10, 10), sizing_mode='stretch_both',styles={'background': '#f0f0f0'}
         )
@@ -96,24 +96,24 @@ class StageProcessGranules(param.Parameterized):
         self._loading_icon.value = True
         start_time = time.perf_counter()
 
-        # Redirect stdout to the terminal widget to show processing messages
+        # Redirect stdout to the terminal widget to show reproj messages
         sys.stdout = self._terminal
         self._terminal.clear()
 
-        _df = self._processing_df
+        _df = self._reproj_df
 
         if len(_df) == 0:
             pn.state.notifications.warning("No granules to process.")
             self._loading_icon.value = False
             return
 
-        if self._processing_range_selector.value is None:
+        if self._reproj_range_selector.value is None:
             _df_dates = pd.to_datetime(_df['date'])
             min_date = _df_dates.min()
             max_date = _df_dates.max()
 
         else:
-            min_date, max_date = pd.to_datetime(self._processing_range_selector.value)
+            min_date, max_date = pd.to_datetime(self._reproj_range_selector.value)
 
         print(f"Date Range: {min_date} | {max_date}")
 
@@ -128,7 +128,7 @@ class StageProcessGranules(param.Parameterized):
         self.registry.epsg_extent = target_area_def.area_extent
         self.registry.to_json()
 
-        for date in self._progress_bar(_df['date'], desc="Processing Granules"):
+        for date in self._progress_bar(_df['date'], desc="Reprojecting Granules"):
             if not (min_date <= pd.to_datetime(date) <= max_date):
                 self._terminal.write(f"Skipping {date} - outside of selected date range.\n")
                 continue
@@ -147,14 +147,14 @@ class StageProcessGranules(param.Parameterized):
 
         end_time = time.perf_counter()
         duration = end_time - start_time
-        self._terminal.write(f"Processing Complete in {duration:.6f} seconds.\n")
+        self._terminal.write(f"Reprojection Complete in {duration:.6f} seconds.\n")
         
         self._loading_icon.value = False
                         
     def _process_granules_single_date(self,date,granule_manager,target_area_def):
         start_time = time.perf_counter()
         self._terminal.write("="*79 + "\n")
-        self._str_out.object = f"Processing granules for date: {date}"
+        self._str_out.object = f"Reprojecting granules for date: {date}"
         self._terminal.write(f"{self._str_out.object}\n")
         self._terminal.write(f"Including Bands: {self.sat_band_subset}\n")
         self._terminal.write(f"Blending Method: {self.blend_method}\n")
@@ -182,7 +182,7 @@ class StageProcessGranules(param.Parameterized):
             granule_manager, msg = self._reproject_viirs(
                 reproj_filename,granule_manager,target_area_def,blend_method)
         else:
-            raise NotImplementedError(f"Processing {self.sat_info.instrument} not implemented.")
+            raise NotImplementedError(f"Reprojecting {self.sat_info.instrument} not implemented.")
 
         return granule_manager, msg
 

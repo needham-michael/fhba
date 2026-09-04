@@ -10,13 +10,13 @@ class DocsPane(param.Parameterized):
 # About
 
 # User Guide
-For the full app documentation, see the online __[User Guide]()__
-* __[Case Selection]()__
+For the full app documentation, see the online __[User Guide](https://needham-michael.github.io/fhba/)__
+* __[Case Selection](https://needham-michael.github.io/fhba/User%20Guide/case_select/)__
 * __Analysis Pipeline__
-    * __[Download Granules]()__
-    * __[Process Granules]()__
-    * __[Classification]()__
-    * __[Aggregation]()__
+    * __[Download Granules](https://needham-michael.github.io/fhba/User%20Guide/Analysis/download_granules/)__
+    * __[Process Granules](https://needham-michael.github.io/fhba/User%20Guide/Analysis/process_granules/)__
+    * __[Classification](https://needham-michael.github.io/fhba/User%20Guide/Analysis/classify/)__
+    * __[Aggregation](https://needham-michael.github.io/fhba/User%20Guide/Analysis/aggregate/)__
 
 """,hard_line_break=True)
         )

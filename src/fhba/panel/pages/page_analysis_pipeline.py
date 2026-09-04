@@ -16,11 +16,9 @@ from fhba.panel.utils import style, bbox_is_valid, validate_directory
 from fhba.schemas import Registry
 from fhba.schemas.sync import json2cases, json2reg, cases2json
 
-from fhba.panel.instructions import Instructions
-
 from fhba.panel.stages import (
     StageSelectInstrument, StageDownloadWorldview, StageSortTruecolor, StageDownloadGranules,
-    StageSelectBlendMethod, StageProcessGranules, StageClassifyUserpts, StageSelectYear, 
+    StageSelectBlendMethod, StageReprojectGranules, StageClassifyUserpts, StageSelectYear, 
     StageAggregate, StageViewBurnmasks
     )
 
@@ -46,7 +44,6 @@ class PageAnalysisPipeline(param.Parameterized):
                 self._refresh_json,self._json_viewer,)),
             ("Missing Files",pn.Card(
                 self._reset_missing_files_btn,self._missing_files_json,**self.card)),
-            ("Instructions",Instructions),
             ("1. Download Granules", self._pipeline_download_layout),
             ("2. Process Granules", self._pipeline_process_layout),
             ("3. Classify Granules", self._pipeline_classify_layout),
@@ -120,7 +117,7 @@ class PageAnalysisPipeline(param.Parameterized):
             stages=[
                 ('Select',StageSelectInstrument(registry=self._json2reg(return_obj=True),show_band_selector=True)),
                 ('Mosaic',StageSelectBlendMethod),
-                ('Process',StageProcessGranules),
+                ('Reproject',StageReprojectGranules),
             ],
             debug=True,ready_parameter='ready'
         )     
