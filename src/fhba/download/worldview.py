@@ -24,7 +24,10 @@ def download_worldview(date,bbox,out_path,overwrite=False,truecolor=True,satelli
     if truecolor:
         url_worldview = url_worldview.replace("PRODUCT", "TrueColor")
     else:
-        url_worldview = url_worldview.replace("PRODUCT", "BandsM11-I2-I1")
+        if "VIIRS" in valid_sat_name[satellite_name]:
+            url_worldview = url_worldview.replace("PRODUCT", "BandsM11-I2-I1")
+        elif "MODIS" in valid_sat_name[satellite_name]:
+            url_worldview = url_worldview.replace("PRODUCT", "Bands721")
 
     url_worldview = url_worldview.replace("DATEPLACEHOLDER", date)
 

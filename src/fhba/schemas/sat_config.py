@@ -3,6 +3,10 @@ from typing import Dict
 
 from fhba.schemas.registry import SatelliteSpec
 
+MODIS_BANDS_ALL = [str(x) for x in range(1,8)] # Omit bands 8-36 (1000m res)
+MODIS_BANDS_DEFAULT = ["1","2","7"]
+MODIS_BANDS_MINIMAL = ["1","2"]
+
 VIIRS_MOD_BANDS = [f"M{b:0>2}" for b in range(1,17)]
 VIIRS_IMG_BANDS = [f"I{b:0>2}" for b in range(1,6)]
 VIIRS_BANDS_ALL = VIIRS_IMG_BANDS + VIIRS_MOD_BANDS
@@ -59,6 +63,32 @@ SATCONFIG: Dict[str,Dict] = {
     #     "end_date":None
     #     "access_method": "earthaccess"
     # },
+    "TERRA MODIS" : {
+        "refl_short_name_list": ["MOD02QKM", "MOD02HKM"],
+        "cmsk_short_name_list": ["MOD03","MOD06_L2","MOD35_L2"],
+        "band_list_all" : MODIS_BANDS_ALL,
+        "band_list_default" : MODIS_BANDS_DEFAULT,
+        "band_list_minimal" : MODIS_BANDS_MINIMAL,
+        "instrument": "modis",
+        "platform":'terra',
+        "abbreviation": 'MOD',
+        "start_date":"2000-02-24",
+        "end_date":None,
+        "access_method": "earthaccess"
+    },
+    "AQUA MODIS" : {
+        "refl_short_name_list": ["MYD02QKM", "MYD02HKM"],
+        "cmsk_short_name_list": ["MYD03","MYD06_L2","MYD35_L2"],
+        "band_list_all" : MODIS_BANDS_ALL,
+        "band_list_default" : MODIS_BANDS_DEFAULT,
+        "band_list_minimal" : MODIS_BANDS_MINIMAL,
+        "instrument": "modis",
+        "platform":'terra',
+        "abbreviation": 'MYD',
+        "start_date":"2002-07-04",
+        "end_date":None,
+        "access_method": "earthaccess"
+    },
 }
 
 def _get_satellite_spec(name: str) -> SatelliteSpec:
