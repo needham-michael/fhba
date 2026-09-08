@@ -83,7 +83,7 @@ SATCONFIG: Dict[str,Dict] = {
         "band_list_default" : MODIS_BANDS_DEFAULT,
         "band_list_minimal" : MODIS_BANDS_MINIMAL,
         "instrument": "modis",
-        "platform":'terra',
+        "platform":'aqua',
         "abbreviation": 'MYD',
         "start_date":"2002-07-04",
         "end_date":None,
