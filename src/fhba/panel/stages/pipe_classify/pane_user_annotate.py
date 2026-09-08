@@ -79,6 +79,7 @@ class PaneUserAnnotate(param.Parameterized):
             self._user_annotate_pane,
         )
 
+    @lru_cache(maxsize=3)
     def _load_img(self,event,date,composite,init_usergeom=True):
         self._selected_date = date
         self._selected_composite = composite
@@ -91,17 +92,31 @@ class PaneUserAnnotate(param.Parameterized):
 
         self._hvrgb = None
         if self.sat_info.instrument == 'viirs':
-            msg, self._hvrgb = self._load_img_viirs(
-                date=self._selected_date,
-                composite=self._selected_composite
-                )
+            band_names = {
+                'nir_band':"I01",
+                'red_band':"I02",
+                'mwir_band':"M11"
+            }
 
-            if not self._hvrgb:
-                pn.state.notifications.warning(msg)
-                return False # Do not proceed to next pane
-            
+        elif self.sat_info.instrument == 'modis':
+            band_names = {
+                'nir_band':"CHANNEL_1",
+                'red_band':"CHANNEL_2",
+                'mwir_band':"CHANNEL_7"
+            }
         else:
             pn.state.notifications.error(f"Need to implement RGB Composite for {self.sat_info.instrument}")
+            return False # Do not proceed to next pane
+
+        self._selected_ds = xr.open_dataset(self._selected_granule.files.reproj_granule)
+        self._selected_ds = self._selected_ds.load()
+        self._selected_ds.attrs['crs'] = ccrs.epsg(self.registry.epsg)
+
+        fn = self._rgb_composite_fn[composite]
+        msg, self._hvrgb = fn(ds=self._selected_ds,**band_names)
+
+        if not self._hvrgb:
+            pn.state.notifications.warning(msg)
             return False # Do not proceed to next pane
         
         if self._hvrgb is not None:
@@ -114,23 +129,6 @@ class PaneUserAnnotate(param.Parameterized):
             self._user_annotate_pane.object = self._maptiles * self._hvrgb * self._county_overlay * self._classification_overlay
         self._user_select_widgets.disabled = False
         return True
-
-    @lru_cache(maxsize=3)
-    def _load_img_viirs(self,date,composite) -> Tuple[str, gv.element.geo.RGB | None]:
-        granule_manager = self.granules[date]
-        _viirs_band_names = {
-            'nir_band':"I01",
-            'red_band':"I02",
-            'mwir_band':"M11"
-        }
-
-        self._selected_ds = xr.open_dataset(granule_manager.files.reproj_granule)
-        self._selected_ds = self._selected_ds.load()
-        self._selected_ds.attrs['crs'] = ccrs.epsg(self.registry.epsg)
-
-        fn = self._rgb_composite_fn[composite]
-
-        return fn(ds=self._selected_ds,**_viirs_band_names)
 
     def _initialize_usergeom(self):
         self._brn_points, self._brn_point_stream = initialize_userpoints(
