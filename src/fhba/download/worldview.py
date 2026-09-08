@@ -9,7 +9,9 @@ def download_worldview(date,bbox,out_path,overwrite=False,truecolor=True,satelli
     valid_sat_name = {
             'Suomi-NPP':'VIIRS_SNPP',
             'NOAA-20':'VIIRS_NOAA20',
-            'NOAA-21':'VIIRS_NOAA21'
+            'NOAA-21':'VIIRS_NOAA21',
+            'TERRA':'MODIS_Terra',
+            'AQUA':'MODIS_Aqua'
         }
 
     if satellite_name not in valid_sat_name:
@@ -22,7 +24,10 @@ def download_worldview(date,bbox,out_path,overwrite=False,truecolor=True,satelli
     if truecolor:
         url_worldview = url_worldview.replace("PRODUCT", "TrueColor")
     else:
-        url_worldview = url_worldview.replace("PRODUCT", "BandsM11-I2-I1")
+        if "VIIRS" in valid_sat_name[satellite_name]:
+            url_worldview = url_worldview.replace("PRODUCT", "BandsM11-I2-I1")
+        elif "MODIS" in valid_sat_name[satellite_name]:
+            url_worldview = url_worldview.replace("PRODUCT", "Bands721")
 
     url_worldview = url_worldview.replace("DATEPLACEHOLDER", date)
 

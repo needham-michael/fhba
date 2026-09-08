@@ -16,7 +16,7 @@ class StageSelectInstrument(param.Parameterized):
 
     satellite_full = param.Selector(
         default=None, 
-        objects=['Suomi-NPP VIIRS', 'NOAA-20 VIIRS', 'NOAA-21 VIIRS',None],
+        objects=['Suomi-NPP VIIRS', 'NOAA-20 VIIRS', 'NOAA-21 VIIRS', "TERRA MODIS", "AQUA MODIS",None],
         )
 
     sat_band_subset = param.List()

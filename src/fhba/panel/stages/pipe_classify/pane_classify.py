@@ -159,6 +159,8 @@ class PaneClassifyPixels(param.Parameterized):
     def _get_cloudmask(self,threshold = 0.75):
         if self.sat_info.instrument == 'viirs':
             self._cloudmask = (self._selected_ds['Clear_Sky_Confidence'] > threshold).rename("cldmsk")
+        elif self.sat_info.instrument == 'modis':
+            self._cloudmask = (self._selected_ds['cloud_mask'].fillna(0)).rename("cldmsk")
             
         else:
             raise NotImplementedError(f"{self.sat_info.instrument =}")
@@ -272,42 +274,29 @@ class PaneClassifyPixels(param.Parameterized):
             self.granules[self._selected_date].files.user_pts
         )
 
+    @lru_cache(maxsize=3)
     def _load_ds(self):
         self._loading_icon.value = True
         self._classify_pixels_widgets.disabled = True
-        if self.sat_info.instrument == 'viirs':
-            self._load_ds_viirs(date=self._selected_date)
-        else:
-            raise NotImplementedError(
-                f"Loading instrument: {self.sat_info.instrument} not yet supported")
 
-        self._loading_icon.value = False
-        self._classify_pixels_widgets.disabled = False
-
-    @lru_cache(maxsize=3)
-    def _load_ds_viirs(self,date):
-        granule_manager = self.granules[date]
+        granule_manager = self.granules[self._selected_date]
         self._selected_ds = xr.open_dataset(granule_manager.files.reproj_granule)
         self._selected_ds = self._selected_ds.load()
+        self._selected_ds = self._selected_ds.fillna(0)
         self._selected_ds.attrs['crs'] = ccrs.epsg(self.registry.epsg)
 
         if self._lcmask is None:
             self._lcmask = rxr.open_rasterio(self.registry.path_lmask).squeeze().rename("lcmask")
+       
+        self._loading_icon.value = False
+        self._classify_pixels_widgets.disabled = False
 
     def _load_prelim_burnmasks(self,date):
         self._loading_icon.value = True
         self._classify_pixels_widgets.disabled = True
-        if self.sat_info.instrument == 'viirs':
-            self._load_prelim_burnmasks_viirs(date=self._selected_date)
-        else:
-            raise NotImplementedError(
-                f"Loading instrument: {self.sat_info.instrument} not yet supported")
 
-        self._loading_icon.value = False
-        self._classify_pixels_widgets.disabled = False
+        granule_manager = self.granules[self._selected_date]
 
-    def _load_prelim_burnmasks_viirs(self,date):
-        granule_manager = self.granules[date]
         print(f"{granule_manager.files.burnmask_prelim = }")
         self._prelim_burnmask_ds = xr.open_dataset(granule_manager.files.burnmask_prelim)
         self._prelim_burnmask_ds = self._prelim_burnmask_ds.load()
@@ -315,6 +304,9 @@ class PaneClassifyPixels(param.Parameterized):
 
         if self._lcmask is None:
             self._lcmask = rxr.open_rasterio(self.registry.path_lmask).squeeze().rename("lcmask")
+        
+        self._loading_icon.value = False
+        self._classify_pixels_widgets.disabled = False
 
     def _merge_burnmasks(self):
         self._merged_burnmask = xr.zeros_like(self._prelim_burnmask_ds[self.classification_methods[0]])
