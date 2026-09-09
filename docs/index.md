@@ -43,7 +43,7 @@ icon: lucide/rocket
 
     ---
 
-    Placeholder
+    Coming Soon...
 
     [:octicons-arrow-right-24: Downloading Granules](./Methodology/downloading.md)
 
@@ -51,7 +51,7 @@ icon: lucide/rocket
 
     ---
 
-    Placeholder
+    Coming Soon...
 
     [:octicons-arrow-right-24: Reprojection](./Methodology/reprojection.md)
 
@@ -59,7 +59,7 @@ icon: lucide/rocket
 
     ---
 
-    Placeholder
+    Coming Soon...
 
     [:octicons-arrow-right-24: Landcover and Daily Cloud Masking](./Methodology/LC_CLD_Mask.md)
 
@@ -67,7 +67,7 @@ icon: lucide/rocket
 
     ---
 
-    Placeholder
+    Coming Soon...
 
     [:octicons-arrow-right-24: Pixel Classification](./Methodology/classification.md)
 
@@ -75,7 +75,7 @@ icon: lucide/rocket
 
     ---
 
-    Placeholder
+    Coming Soon...
 
     [:octicons-arrow-right-24: Aggregation](./Methodology/aggregation.md)
 
