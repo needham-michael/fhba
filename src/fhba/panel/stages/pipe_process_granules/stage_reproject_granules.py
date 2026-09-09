@@ -6,7 +6,7 @@ import panel as pn
 import param
 
 from fhba.panel.utils import style
-from fhba.reproject import create_target_area_def, reproject_viirs, reproject_modis
+from fhba.reproject import create_target_area_def, reproject_viirs, reproject_modis, reproject_olci
 
 class StageReprojectGranules(param.Parameterized):
  
@@ -185,7 +185,10 @@ class StageReprojectGranules(param.Parameterized):
         elif self.sat_info.instrument == 'modis':
             _cmsk_band_list=['cloud_mask']
             _reproj_fn = reproject_modis
-        else:
+        elif self.sat_info.instrument == 'olci':
+            _cmsk_band_list=['quality_flags']
+            _reproj_fn = reproject_olci
+        else:    
             raise NotImplementedError(f"Reprojecting {self.sat_info.instrument} not implemented.")
 
         self._terminal.write(f"Reprojecting Granules...\n")

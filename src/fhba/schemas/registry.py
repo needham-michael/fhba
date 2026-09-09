@@ -6,6 +6,7 @@ from typing import List, Literal, Optional, Tuple, Union, Dict
 
 from pydantic import BaseModel, Field
 
+from fhba.reproject import create_target_area_def
 # from fhba.schemas.app_config import AppConfig
 
 class AreaDefSpec(BaseModel):
@@ -31,7 +32,7 @@ class AreaDefSpec(BaseModel):
 
 class SatelliteSpec(BaseModel):
     refl_short_name_list : List[str]
-    cmsk_short_name_list : List[str]
+    cmsk_short_name_list : List[str | None]
     band_list_all : List[str]
     band_list_default : List[str]
     band_list_minimal : List[str]
@@ -192,6 +193,15 @@ class Registry(BaseModel):
             for row in _df[['year','sat','date',col]].dropna().itertuples():
                 gm = self.granules[str(row.year)][row.sat][row.date]
                 setattr(gm,flag,False)
+
+    def create_target_area_def(self):
+        return create_target_area_def(
+            casename = self.casename,
+            bounding_box = self.bounding_box,
+            resolution = self.resolution,
+            epsg = self.epsg,
+            epsg_units = self.epsg_units
+        )
 
     def to_json(self) -> None:
         with open(self.json_filename,"w",encoding='utf-8') as f:

@@ -6,7 +6,8 @@ import param
 gv.extension("bokeh")
 
 from fhba.panel.setup import VersionInfo
-from fhba.panel.pages import PageSelectCase, PageAnalysisPipeline
+from fhba.panel.pages import PageSelectCase, PageAnalysisPipeline, ModalOAuthConfig
+from fhba.panel.pages.modal_oauth_config import get_oauth_instructions
 from fhba.panel.docs import DocsPane
 
 pn.extension("ace",'tabulator','terminal','modal',"jsoneditor",'floatpanel')
@@ -67,18 +68,34 @@ def build_app():
         header_background = "#E69F00"
         app_title = "Flint Hills Burned Area (DEV MODE)"
 
+    modal_btn_open = pn.widgets.Button(label="Configure OAuth Credentials",color='primary')
+    modal_btn_close = pn.widgets.Button(label="Close",color='danger')
 
     app = pn.template.MaterialTemplate(
-        sidebar=DocsPane()._layout,
+        sidebar=pn.Column(
+            DocsPane()._layout,
+            get_oauth_instructions(),
+            modal_btn_open,
+        ),
         main=[
             VersionInfo()._layout,
             AppPages()._layout,
         ],
+        modal = ModalOAuthConfig(close_button=modal_btn_close)._layout,
         header_background=header_background,
         title = app_title,
         collapsed_sidebar=True,
         sidebar_width=275
     )
+
+    def open_modal(event):
+        app.open_modal()
+
+    def close_modal(event):
+        app.close_modal()
+
+    modal_btn_open.on_click(open_modal)
+    modal_btn_close.on_click(close_modal)
         
     return app
 

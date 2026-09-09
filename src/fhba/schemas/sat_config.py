@@ -7,6 +7,10 @@ MODIS_BANDS_ALL = [str(x) for x in range(1,8)] # Omit bands 8-36 (1000m res)
 MODIS_BANDS_DEFAULT = ["1","2","7"]
 MODIS_BANDS_MINIMAL = ["1","2"]
 
+OLCI_BANDS_ALL = [f"Oa{b:0>2}" for b in range(1,22)] # Omit bands 8-36 (1000m res)
+OLCI_BANDS_DEFAULT = ["Oa08","Oa17"]
+OLCI_BANDS_MINIMAL = ["Oa08","Oa17"]
+
 VIIRS_MOD_BANDS = [f"M{b:0>2}" for b in range(1,17)]
 VIIRS_IMG_BANDS = [f"I{b:0>2}" for b in range(1,6)]
 VIIRS_BANDS_ALL = VIIRS_IMG_BANDS + VIIRS_MOD_BANDS
@@ -86,6 +90,32 @@ SATCONFIG: Dict[str,Dict] = {
         "platform":'aqua',
         "abbreviation": 'MYD',
         "start_date":"2002-07-04",
+        "end_date":None,
+        "access_method": "earthaccess"
+    },
+    "Sentinel-3A OLCI" : {
+        "refl_short_name_list": ["S3A_OL_1_EFR"],
+        "cmsk_short_name_list": [None], # Quality flag included in refl product
+        "band_list_all" : OLCI_BANDS_ALL,
+        "band_list_default" : OLCI_BANDS_DEFAULT,
+        "band_list_minimal" : OLCI_BANDS_MINIMAL,
+        "instrument": "olci",
+        "platform":'Sentinel-3A',
+        "abbreviation": 'S3A',
+        "start_date":"2016-04-25",
+        "end_date":None,
+        "access_method": "earthaccess"
+    },
+    "Sentinel-3B OLCI" : {
+        "refl_short_name_list": ["S3B_OL_1_EFR"],
+        "cmsk_short_name_list": [None], # Quality flag included in refl product
+        "band_list_all" : OLCI_BANDS_ALL,
+        "band_list_default" : OLCI_BANDS_DEFAULT,
+        "band_list_minimal" : OLCI_BANDS_MINIMAL,
+        "instrument": "olci",
+        "platform":'Sentinel-3B',
+        "abbreviation": 'S3B',
+        "start_date":"2018-05-14",
         "end_date":None,
         "access_method": "earthaccess"
     },

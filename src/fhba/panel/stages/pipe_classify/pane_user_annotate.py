@@ -104,6 +104,12 @@ class PaneUserAnnotate(param.Parameterized):
                 'red_band':"CHANNEL_2",
                 'mwir_band':"CHANNEL_7"
             }
+        elif self.sat_info.instrument == 'olci': 
+            band_names = {
+                'nir_band':"Oa08",
+                'red_band':"Oa17",
+                'mwir_band':None
+            }
         else:
             pn.state.notifications.error(f"Need to implement RGB Composite for {self.sat_info.instrument}")
             return False # Do not proceed to next pane

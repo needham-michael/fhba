@@ -159,9 +159,8 @@ class PaneClassifyPixels(param.Parameterized):
     def _get_cloudmask(self,threshold = 0.75):
         if self.sat_info.instrument == 'viirs':
             self._cloudmask = (self._selected_ds['Clear_Sky_Confidence'] > threshold).rename("cldmsk")
-        elif self.sat_info.instrument == 'modis':
+        elif self.sat_info.instrument == 'modis' or self.sat_info.instrument == 'olci':
             self._cloudmask = (self._selected_ds['cloud_mask'].fillna(0)).rename("cldmsk")
-            
         else:
             raise NotImplementedError(f"{self.sat_info.instrument =}")
 

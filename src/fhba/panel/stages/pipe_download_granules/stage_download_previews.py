@@ -1,4 +1,5 @@
 from datetime import datetime
+from functools import partial
 
 import pandas as pd
 import panel as pn
@@ -7,9 +8,10 @@ import param
 from fhba.schemas import GranuleManager, FileMetadata
 from fhba.panel.utils import style, get_valid_dates
 from fhba.download.worldview import download_worldview
+from fhba.download.cdse import initialize_cdse_client, download_cdse
 
-class StageDownloadWorldview(param.Parameterized):
-    """Download and preview TrueColor images from NASA Worldview"""
+class StageDownloadPreviews(param.Parameterized):
+    """Download and preview TrueColor images from NASA Worldview or Sentinel-Hub"""
 
     year = param.Integer()
     satellite_full = param.String()
@@ -66,16 +68,32 @@ class StageDownloadWorldview(param.Parameterized):
 
         self._loading_icon.value = True
 
+        if self.sat_info.instrument == 'olci':
+            print("Downloading OLCI Image via Sentinel-Hub")
+            config, oauth = initialize_cdse_client()
+            if not config:
+                pn.state.notifications.warning("Need to update CDSE OAuth Credentials")
+                return
+            ny, nx = self.registry.create_target_area_def().shape
+            fn_download = partial(
+                download_cdse, bbox=self.registry.bounding_box,overwrite=False,
+                oauth = oauth, nx = nx, ny = ny, satellite_name=self.sat_info.abbreviation,
+            )
+        else:
+            print("Downloading Image via Worldview")
+            fn_download = partial(
+                download_worldview, bbox=self.registry.bounding_box,overwrite=False,
+                satellite_name=self.satellite,
+            )
+
         for date in self._pbar(date_range,desc="Downloading Preview Images"):
 
             date = date.strftime("%Y-%m-%d")
 
             truecolor_img_path = self._get_worldview_filename(date)
 
-            download_valid, truecolor_img_path = download_worldview(
-                date=date,bbox=self.registry.bounding_box,overwrite=False,
-                satellite_name=self.satellite,out_path=truecolor_img_path
-            )
+            download_valid, truecolor_img_path = fn_download(
+                date=date,out_path=truecolor_img_path)
 
             if download_valid:
                 self._png_pane.object = truecolor_img_path

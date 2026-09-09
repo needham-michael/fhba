@@ -266,7 +266,7 @@ class StageDownloadGranules(param.Parameterized):
         raw_cmsk_granule = []
         for f in granule_files:
             for short_name in self.sat_info.cmsk_short_name_list:
-                if short_name in str(f):
+                if short_name and short_name in str(f): # drop-in to ensure short_name!=None
                     raw_cmsk_granule.append(f)
         raw_refl_granule = [p for p in granule_files if p not in raw_cmsk_granule]
 
