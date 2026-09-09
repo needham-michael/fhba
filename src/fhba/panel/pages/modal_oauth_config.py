@@ -50,7 +50,7 @@ class ModalOAuthConfig(param.Parameterized):
         return self._layout
 
 def get_oauth_instructions():
-    instr = "# OAuth Instructions\n"
-    instr += "Placeholder for OAuth Authentication Instructions"
+    instr = "# Credentials\n"
+    instr += "For instructions on how to acquire OAuth credentials necessary to analyze Sentinel-3 OLCI imagery, see the __[Configuration](https://needham-michael.github.io/fhba/Configuration/configuration/)__ page of the user guide."
 
     return pn.pane.Markdown(instr,hard_line_break=True)

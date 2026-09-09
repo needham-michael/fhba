@@ -12,7 +12,7 @@ icon: lucide/rocket
 
     ---
 
-    Instructions on how to **Load** an existing case, **Create** a new case, or **Delete** an old case
+    Instructions on how to **Load** an existing case, **Create** a new case, or **Delete** an old case.
 
     [:octicons-arrow-right-24: Case Selection](./User Guide/case_select.md)
 
@@ -20,7 +20,7 @@ icon: lucide/rocket
 
     ---
 
-    Step-by-step instructions from downloading granules to exporting a finalized burnmask
+    Step-by-step instructions from downloading granules to exporting a finalized burnmask.
 
     [:octicons-arrow-right-24: Analysis Pipeline](./User Guide/Analysis/index.md)
 
@@ -35,7 +35,7 @@ icon: lucide/rocket
 
     ---
 
-    Placeholder
+    Information on the satellite-borne imaging spectrometers which provide the imagery used by the application. 
 
     [:octicons-arrow-right-24: Satellites](./Methodology/satellites.md)
 
@@ -43,7 +43,7 @@ icon: lucide/rocket
 
     ---
 
-    Placeholder
+    Coming Soon...
 
     [:octicons-arrow-right-24: Downloading Granules](./Methodology/downloading.md)
 
@@ -51,7 +51,7 @@ icon: lucide/rocket
 
     ---
 
-    Placeholder
+    Coming Soon...
 
     [:octicons-arrow-right-24: Reprojection](./Methodology/reprojection.md)
 
@@ -59,7 +59,7 @@ icon: lucide/rocket
 
     ---
 
-    Placeholder
+    Coming Soon...
 
     [:octicons-arrow-right-24: Landcover and Daily Cloud Masking](./Methodology/LC_CLD_Mask.md)
 
@@ -67,15 +67,15 @@ icon: lucide/rocket
 
     ---
 
-    Placeholder
+    Coming Soon...
 
-    [:octicons-arrow-right-24: Pixel Classification](./Methodology/classifiction.md)
+    [:octicons-arrow-right-24: Pixel Classification](./Methodology/classification.md)
 
 -   :material-layers-triple-outline:{ .lg .middle } __Aggregation of Multiple Burnmasks__
 
     ---
 
-    Placeholder
+    Coming Soon...
 
     [:octicons-arrow-right-24: Aggregation](./Methodology/aggregation.md)
 
