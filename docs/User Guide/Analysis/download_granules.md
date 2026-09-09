@@ -6,6 +6,13 @@ The user first selects a `Year` and `Satellite` from the dropdowns before clicki
 
 On the next page, a date range slider allows the user to select the starting and ending dates from which to download preview images. Clicking the `Download Preview Images` button queries NASA worldview for each date within the date range. 
 
+!!! info "Preview Images for Sentinel-3A/B OLCI"
+    NASA Worldview does not currently host true-color imagery from the OCLI onboard the European __[Sentinel-3A/B](https://sentinels.copernicus.eu/copernicus/sentinel-3)__ satellites. Instead, the application directly queries the Copernicus Data Space Ecosystem (CDSE) server to construct a true-color image for the mapping region "on the fly".
+
+    This capability requires that the user register for a free account with CDSE. For more information see the __[CDSE Configuration Page](../../Configuration/configuration.md#configuring-cdse)__ of this user guide.
+
+    __This behavior is preliminary and may change in the future__
+
 Once all images have been downloaded, click the `Next` button.
 
 ## Classify Preview Images

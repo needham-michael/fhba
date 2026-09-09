@@ -31,6 +31,9 @@ nav = [
       "Methodology/classification.md",
       "Methodology/aggregation.md",
   ] },
+  { "Configuration" = [
+      "Configuration/configuration.md"
+  ] }
 ]
 
 # extra_css = ["stylesheets/extra.css"]
