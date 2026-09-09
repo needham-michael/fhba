@@ -17,7 +17,7 @@ from fhba.schemas import Registry
 from fhba.schemas.sync import json2cases, json2reg, cases2json
 
 from fhba.panel.stages import (
-    StageSelectInstrument, StageDownloadWorldview, StageSortTruecolor, StageDownloadGranules,
+    StageSelectInstrument, StageDownloadPreviews, StageSortTruecolor, StageDownloadGranules,
     StageSelectBlendMethod, StageReprojectGranules, StageClassifyUserpts, StageSelectYear, 
     StageAggregate, StageViewBurnmasks
     )
@@ -102,7 +102,7 @@ class PageAnalysisPipeline(param.Parameterized):
         _pipe = pn.pipeline.Pipeline(
             stages=[
                 ('Select',StageSelectInstrument(registry=self._json2reg(return_obj=True))),
-                ('DownloadWorldview',StageDownloadWorldview),
+                ('DownloadPreviews',StageDownloadPreviews),
                 ('SortTrueColor',StageSortTruecolor),
                 ('DownloadGranules',StageDownloadGranules)
             ],

@@ -86,7 +86,11 @@ def request_and_filter_features(date : str,bbox : list, platform : str, oauth):
     # the bounding box for the selected platform
     features_gdf = features_gdf[features_gdf['platform'] == platform].sort_values('area',ascending=False)
 
-    return dict(features_gdf.sort_values('area',ascending=False).iloc[0])
+    try:
+        print(f"{features_gdf = }")
+        return dict(features_gdf.sort_values('area',ascending=False).iloc[0])
+    except:
+        return None
 
 def get_olci_truecolor_evalscript():
     evalscript = """
@@ -161,6 +165,11 @@ def download_cdse(
 
     feat = request_and_filter_features(
         date=date,bbox=bbox,platform=satellite_name,oauth=oauth)
+
+    if not feat:
+        download_valid = False
+        return download_valid, out_path
+
 
     request = get_olci_truecolor_request(
         bbox=bbox,nx=nx,ny=ny,
