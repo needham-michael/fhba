@@ -1,2 +1,3 @@
 from fhba.panel.pages.page_select_case import PageSelectCase as PageSelectCase
 from fhba.panel.pages.page_analysis_pipeline import PageAnalysisPipeline as PageAnalysisPipeline
+from fhba.panel.pages.modal_oauth_config import ModalOAuthConfig as ModalOAuthConfig
