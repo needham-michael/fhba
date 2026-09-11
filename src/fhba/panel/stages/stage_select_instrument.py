@@ -37,7 +37,7 @@ class StageSelectInstrument(param.Parameterized):
         self._show_classification_selector = show_classification_selector
         self._get_style()
         self._get_valid_dates()
-        
+        self._build_satellite_daterange_table()
         self._build_band_selector_pane()
         self._build_classification_selector_pane()
 
@@ -46,9 +46,13 @@ class StageSelectInstrument(param.Parameterized):
                 pn.pane.Markdown("## Select Satellite and Year for Analysis"),
                 self.param.year,
                 self.param.satellite_full,
+                self._band_selector_layout,
+                self._classification_selector_layout,
             ),
-            self._band_selector_layout,
-            self._classification_selector_layout,
+            pn.Column(
+                pn.pane.Markdown("## Currently Supported Instruments"),
+                self._satellite_daterange_table,
+            ),
             ),**self.card,
             # title="Select Satellite and Year for Analysis"
         )
@@ -101,6 +105,19 @@ class StageSelectInstrument(param.Parameterized):
             visible=self._show_band_selector,
             disabled=False
         )
+
+    def _build_satellite_daterange_table(self):
+        sat_list = [sat for sat in self.registry.sat_info]
+        instr_list = [self.registry.sat_info[sat].instrument for sat in sat_list]
+        start_dates = [self.registry.sat_info[sat].start_date for sat in sat_list]
+        end_dates = [self.registry.sat_info[sat].end_date for sat in sat_list]
+
+        self._satellite_daterange_table = pn.widgets.Tabulator(pd.DataFrame(data={
+                'Satellite Platform':sat_list,
+                'Instrument':[x.upper() for x in instr_list],
+                'Start Date':start_dates,
+                'End Date':end_dates
+        }),disabled=True,show_index=False)
 
     def _get_valid_dates(self):
         self.valid_min_date, self.valid_max_date = get_valid_dates(year=self.year)
