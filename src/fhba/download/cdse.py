@@ -79,15 +79,15 @@ def request_and_filter_features(date : str,bbox : list, platform : str, oauth):
         geometry=[shapely.Polygon(f['geometry']['coordinates'][0]) for f in features],
         crs=ccrs.PlateCarree()
     )
-    features_gdf['platform'] = features_gdf['feat_id'].str[:3]
-    features_gdf['area'] = gpd.overlay(features_gdf, bbox_gdf, how='intersection').geometry.area
-
-    # Filter features to identify the feature that most completely covers
-    # the bounding box for the selected platform
-    features_gdf = features_gdf[features_gdf['platform'] == platform].sort_values('area',ascending=False)
 
     try:
-        print(f"{features_gdf = }")
+        features_gdf['platform'] = features_gdf['feat_id'].str[:3]
+        features_gdf['area'] = gpd.overlay(features_gdf, bbox_gdf, how='intersection').geometry.area
+
+        # Filter features to identify the feature that most completely covers
+        # the bounding box for the selected platform
+        features_gdf = features_gdf[features_gdf['platform'] == platform].sort_values('area',ascending=False)
+
         return dict(features_gdf.sort_values('area',ascending=False).iloc[0])
     except:
         return None
