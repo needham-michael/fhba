@@ -5,7 +5,7 @@ import pandas as pd
 import panel as pn
 import param
 
-from fhba.panel.utils import style
+from fhba.panel.utils import style, get_valid_dates
 from fhba.reproject import create_target_area_def, reproject_viirs, reproject_modis, reproject_olci
 
 class StageReprojectGranules(param.Parameterized):
@@ -43,6 +43,7 @@ class StageReprojectGranules(param.Parameterized):
         ),**self.card)
 
     def _setup(self):
+        self._get_valid_dates()
         self._build_table_pane()
         self._build_reproj_pane()      
 
@@ -212,6 +213,9 @@ class StageReprojectGranules(param.Parameterized):
         msg = f"Success reprojecting {granule_manager}"
 
         return granule_manager, msg
+    
+    def _get_valid_dates(self):
+        self.valid_min_date, self.valid_max_date = get_valid_dates(year=self.year)
 
 
     def _get_style(self):
