@@ -8,6 +8,14 @@ icon: lucide/rocket
 
 <div class="grid cards" markdown>
 
+-   :material-rocket-launch:{ .lg .middle } __First Time Setup__
+
+    ---
+
+    How to download and setup the mapping application.
+
+    [:octicons-arrow-right-24: First Time Setup](./User Guide/first_time_setup.md)
+    
 -   :material-folder:{ .lg .middle } __Case Setup and Management__
 
     ---
