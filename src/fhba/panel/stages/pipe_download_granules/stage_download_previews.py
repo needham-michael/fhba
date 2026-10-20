@@ -73,6 +73,7 @@ class StageDownloadPreviews(param.Parameterized):
             config, oauth = initialize_cdse_client()
             if not config:
                 pn.state.notifications.warning("Need to update CDSE OAuth Credentials")
+                self._loading_icon.value = False
                 return
             ny, nx = self.registry.create_target_area_def().shape
             fn_download = partial(

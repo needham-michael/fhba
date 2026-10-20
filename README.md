@@ -1,80 +1,43 @@
-# FHBA (Flint Hills Burned Area Tool)
+# FHBA 
 
-## About
+The __Flint Hills Burned Area (FHBA)__ mapping tool is a Python-based application to categorize burned and unburned regions of the Flint Hills polar-orbitting satellite imagery.
 
-Placeholder
+__For instructions on how to download, setup, launch, and use the application, see the online [User's Guide](https://needham-michael.github.io/fhba/)__
 
-<img src="./_static/burnmaskexample.jpg" height=800>
+## Features
 
-#### Features
+#### Data Acquisition and Processing Pipeline
 
-Placeholder
+Download satellite granules from __[NASA EarthData](https://www.earthdata.nasa.gov/)__, extract specified imagery bands, and reproject to the user's mapping grid without leaving the application. 
 
+#### Semi-Supervised Pixel Classification
 
-<hr>
+Identify burned and unburned training regions, and let the application classify the entire image using a blended ensemble approach of different classification algorithms.
 
-## Launch Instructions
+#### Full-Season Burn Mask Aggregation
 
-> Make sure to follow the __First Time Setup__ steps included below before running the application
+Combine daily burn layers from multiple instruments into a cumulative "season-to-date" burn mask.
 
-Launch the server with
+#### Multi-Instrument Support
 
-```shell
-# include the --show flag to automatically open in the default browser
-uv run panel serve .\src\fhba\app\app.py --show
-```
+Current or planned support for the following instruments 
 
-<hr>
-
-## Change Log
-
-Placeholder
-
-<hr>
-
-## First Time Setup
-
-### 1. Python environment setup
-
-> For ease of use, this project relies on `uv` for python environment management. See the `uv` User's Guide for __[Installation Instructions](https://docs.astral.sh/uv/getting-started/installation/#installing-uv)__ via `pip`.
-
-
-
-Run `uv sync` from to install the necessary third-party packages into a `.venv` within the project directory:
-
-```shell
-# From the same directory with the uv.lock and pyproject.toml file...
-uv sync
-```
-
-### 2. Configuration Settings
-
-__Bounding Box:__ The default bounding box of `[97.75W, 39.75N, 95.25W, 35.75N]` is set in the `src\fhba\config.yaml` file, but this can be changed if desired.
-
-
-### 3. Land cover mask
-
-
-> *If you would like to use the NLCD from a different year instead of the default 2024 file:*
-> 1. Download the Annual Land Cover Database for a recent year from the __[Multi Resolution Land Characteristics (MRLC) Consortium](https://www.mrlc.gov/data)__. Unzip the download into ./fhba/src/fhba/app/appdata/annual_nlcd
-> 2. Update the application config file to point to the correct NLCD file (e.g., update `nlcd_filename` to have the correct year in the filename)
-> 3. Execute the python script (e.g., `uv run /fhba/process_landcover_mask.py`) as above.
-
-
-This tool relies on a landcover mased derived from the __[USGS National Land Cover Database](https://www.usgs.gov/centers/eros/science/national-land-cover-database)__. As seen in the image below, the Flint Hills primarily consists of NLCD categories __71 (Grasslands/Herbaceous)__ and __81 (Pasture/Hay)__. A recent version of the NLCD (Annual Land cover for 2024) is included in the repository via __[Git Large File Storage](https://docs.github.com/en/repositories/working-with-files/managing-large-files/about-git-large-file-storage)__, and should be automatically downloaded locally when the repository is cloned. 
-
-![](./_static/nlcd2024_mrlc_viewer.png)
-
-The included `fhba/process_landcover_mask.py` script generates an appropriate landcover mask based on the bounding box specified in the `config.yaml` file so that only pixels coincident with these two NLCD categories are considered to have the potential to burn. 
-
-Execute the script with:
-
-```shell
-uv run ./src/fhba/process_landcover_mask.py
-```
-
-<hr>
+| Platform | Instrument | Start Date | End Date |
+| -------- | ---------- | ---------- | -------- |
+| Terra | MODIS | 24 February 2000 | February 2027|
+| Aqua | MODIS | 4 July 2002 | September 2027|
+| Suomi-NPP | VIIRS | 19 January 2012 | November 1, 2026|
+| NOAA-20 | VIIRS | 5 January 2018 | - |
+| NOAA-21 | VIIRS | 10 February 2023 | - |
+| *NOAA-22* | *VIIRS* | *expected 2027*| - |
+| *NOAA-23* | *VIIRS* | *expected 2032*| - |
+| Sentinel-3A | OLCI | 16 February 2016 | - |
+| Sentinel-3B | OLCI | 25 April 2016 | - |
+| *Sentinel-3C* | OLCI | *expected 2026* | - |
 
 ## License
 
+Copyright (c) 2026 Michael Needham
+
+Licensed under the MIT License. 
 <hr>
